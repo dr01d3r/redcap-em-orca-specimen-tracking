@@ -1,0 +1,8 @@
+{
+    "/dist/pages/shipment/app.js": "/dist/pages/shipment/app.js",
+    "/dist/pages/dashboard/app.js": "/dist/pages/dashboard/app.js",
+    "/dist/pages/report/app.js": "/dist/pages/report/app.js",
+    "/dist/pages/report/style.css": "/dist/pages/report/style.css",
+    "/dist/pages/dashboard/style.css": "/dist/pages/dashboard/style.css",
+    "/dist/pages/shipment/style.css": "/dist/pages/shipment/style.css"
+}

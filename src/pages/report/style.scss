@@ -1,0 +1,32 @@
+@import "../../../node_modules/bootstrap/scss/functions";
+@import "../../../node_modules/bootstrap/scss/variables";
+@import "../../../node_modules/bootstrap/scss/mixins";
+@import "../../../node_modules/bootstrap/scss/alert";
+
+@each $color, $value in $colors {
+  .plate-well-#{$color} {
+    border-color: $white;
+    background-color: $value;
+  }
+  .plate-well-#{$color}-800 {
+    border-color: $white;
+    background-color: lighten($value, 20%);
+  }
+}
+
+@each $color, $value in $theme-colors {
+  .plate-well-#{$color} {
+    border-color: $white;
+    background-color: $value;
+  }
+  .plate-well-#{$color}-800 {
+    border-color: $white;
+    background-color: lighten($value, 20%);
+  }
+}
+
+.plate-well-selected {
+  color: theme-color-level('success', -10) !important;
+  background-color: theme-color-level('success', -9) !important;
+  border-color: theme-color-level('success', 6) !important;
+}

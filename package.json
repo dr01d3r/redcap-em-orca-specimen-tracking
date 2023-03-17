@@ -1,0 +1,32 @@
+{
+  "name": "orca_specimen_tracking_v1.0.0",
+  "version": "1.0.0",
+  "description": "REDCap External Module for Biospecimen Tracking",
+  "main": "index.js",
+  "scripts": {
+    "build": "npx mix",
+    "dev": "npx mix watch"
+  },
+  "author": "Chris Kadolph",
+  "license": "MIT",
+  "devDependencies": {
+    "laravel-mix": "^6.0.41",
+    "resolve-url-loader": "^5.0.0",
+    "sass": "^1.49.0",
+    "sass-loader": "^12.4.0",
+    "vue-loader": "^15.9.8",
+    "vue-template-compiler": "^2.6.14"
+  },
+  "dependencies": {
+    "@vue/composition-api": "^1.4.4",
+    "@vuelidate/core": "^2.0.0-alpha.34",
+    "@vuelidate/validators": "^2.0.0-alpha.26",
+    "axios": "^0.25.0",
+    "bootstrap-vue": "^2.21.2",
+    "luxon": "^2.3.0",
+    "qs": "^6.10.3",
+    "vue": "^2.6.14",
+    "vue-axios": "^3.4.0",
+    "vue2-datepicker": "^3.10.4"
+  }
+}

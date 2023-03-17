@@ -1,0 +1,163 @@
+{
+  "name": "Orca Specimen Tracking",
+  "namespace": "ORCA\\OrcaSpecimenTracking",
+  "description": "Helps manage the tracking of specimens to boxes, using specific configurations and validation based on the box type.",
+  "authors": [
+    {
+      "name": "Chris Kadolph",
+      "email": "kadolph.christopher@marshfieldresearch.org",
+      "institution": "Marshfield Clinic Research Institute"
+    },
+    {
+      "name": "Leila Deering",
+      "email": "deering.leila@marshfieldresearch.org",
+      "institution": "Marshfield Clinic Research Institute"
+    }
+  ],
+  "framework-version": 10,
+  "permissions": [
+    "redcap_data_entry_form",
+    "redcap_every_page_top"
+  ],
+  "links": {
+    "project": [
+      {
+        "name": "Sample Entry Dashboard",
+        "icon": "fas fa-vials",
+        "url": "views/index.php",
+        "show-header-and-footer": true
+      },
+      {
+        "name": "Shipment Dashboard",
+        "icon": "fas fa-truck",
+        "url": "views/shipment.php",
+        "show-header-and-footer": true
+      },
+      {
+        "name": "Report Dashboard",
+        "icon": "fas fa-flask",
+        "url": "views/report.php",
+        "show-header-and-footer": true
+      }
+    ]
+  },
+  "system-settings": [
+    {
+      "key": "project_configs",
+      "name": "Project Configurations",
+      "required": true,
+      "type": "sub_settings",
+      "repeatable": true,
+      "sub_settings": [
+        {
+          "key": "desc_project_selection",
+          "name": "<h4 class=\"mt-1 py-1 px-2 border-top border-bottom border-dark bg-secondary text-light\">Project Selection</h4><i class=\"text-muted\">Projects used must all be unique, meaning they cannot be used in more than one configuration - doing so will trigger error messages in any projects impacted by the re-use.</i>",
+          "type": "descriptive"
+        },
+        {
+          "key": "plate_project_id",
+          "name": "Please select the Box Project",
+          "required": true,
+          "type": "project-id"
+        },
+        {
+          "key": "specimen_project_id",
+          "name": "Please select the Specimen Project",
+          "required": true,
+          "type": "project-id"
+        },
+        {
+          "key": "shipment_project_id",
+          "name": "Please select the Shipment Project",
+          "required": true,
+          "type": "project-id"
+        },
+        {
+          "key": "desc_general",
+          "name": "<h4 class=\"mt-1 py-1 px-2 border-top border-bottom border-dark bg-secondary text-light\">General Configuration</h4><i class=\"text-muted\">All configurations in this section are <b>required</b> for the module to behave correctly. Any missing values will almost certainly cause the module to error when used.</i>",
+          "type": "descriptive"
+        },
+        {
+          "key": "study_name",
+          "name": "Study Name",
+          "required": true,
+          "type": "text"
+        },
+        {
+          "key": "plate_size",
+          "name": "Box Size",
+          "required": true,
+          "type": "dropdown",
+          "choices": [
+            {
+              "value": "9x9",
+              "name": "9x9"
+            },
+            {
+              "value": "8x12",
+              "name": "8x12"
+            }
+          ]
+        },
+        {
+          "key": "box_name_regex",
+          "name": "<strong>Box Name:</strong> The regular expression necessary for pulling out the various components from the box's <code>[box_name]</code> field. The following is a list of all allowable named capture groups that are currently coded/used within validation.<br/><ul><li>box_type</li><li>sample_type</li><li>aliquot_number</li><li>visit</li><li>box_number</li></ul>Example: <code>/^(?&lt;box_type&gt;00|[A-Z]{2})(?&lt;sample_type&gt;[a-z]{5})(?&lt;aliquot_number&gt;[0-9]{2})(-V)(?&lt;visit&gt;[0-9]{3})(-BX)(?&lt;box_number&gt;[0-9]{3})$/</code>",
+          "required": true,
+          "type": "text"
+        },
+        {
+          "key": "specimen_name_regex",
+          "name": "<strong>Specimen Name:</strong> The regular expression necessary for pulling out the various components from the specimen's <code>[name]</code> field. The following is a list of all allowable named capture groups that are currently coded/used within validation.<br/><ul><li>year</li><li>participant_id</li><li>visit</li><li>sample_type</li><li>aliquot_number</li></ul>Example: <code>/^(?&lt;year&gt;[0-9]{2})(-)(V)(?&lt;participant_id&gt;[0-9]{4})(-v)(?&lt;visit&gt;[0-9]{2})(?&lt;sample_type&gt;[a-zA-Z]{2})(?&lt;aliquot_number&gt;[0-9]{2})$/</code>",
+          "required": true,
+          "type": "text"
+        },
+        {
+          "key": "desc_optional",
+          "name": "<h4 class=\"mt-1 py-1 px-2 border-top border-bottom border-dark bg-secondary text-light\">Optional Configurations</h4><i class=\"text-muted\">The following configurations are all optional.  Anything in this section can either add additional features or override existing default behaviors.</i>",
+          "type": "descriptive"
+        },
+        {
+          "key": "datetime_format",
+          "name": "Preferred datetime format instead of the raw <code>[yyyy-MM-dd hh:mm]</code> database format.  This value will be used in the specimen list on the main dashboard. Provided format MUST match Luxon date format requirements.<br/><br/>See <a href='https://github.com/moment/luxon/blob/master/docs/formatting.md#table-of-tokens' target='_blank'>Luxon Documentation</a> for required format.",
+          "required": false,
+          "type": "text"
+        },
+        {
+          "key": "default_volume",
+          "name": "Default volume for new specimens",
+          "required": false,
+          "type": "text"
+        },
+        {
+          "key": "collected_to_processed_minutes_max",
+          "name": "<p>Override the maximum allowed time, in <code>[MINUTES]</code>, between collected and processed dates, before a warning is given.</p><ul><li>Must be numeric and greater than zero.</li><li>Default value: 1080 (18 hours)</li></ul>Leave this empty to use the default value",
+          "required": false,
+          "type": "text"
+        },
+        {
+          "key": "desc_mixed_temp_box",
+          "name": "<h4 class=\"mt-1 py-1 px-2 border-top border-bottom border-dark bg-secondary text-light\">Mixed '00' Temporary Box Configuration</h4><i class=\"text-muted\">A special box type that has unique requirements/validations for the team this was built for at Marshfield.  Other sites may not find this special box type useful.</i>",
+          "type": "descriptive"
+        },
+        {
+          "key": "use_temp_box_type",
+          "name": "Will this configuration be utilizing the special 'Temporary' box type?  Leave unchecked to ignore.",
+          "required": false,
+          "type": "checkbox"
+        },
+        {
+          "key": "num_visits",
+          "name": "The total number of expected visits per participant. Will be ignored if the previous checkbox was left unchecked.",
+          "required": false,
+          "type": "text"
+        },
+        {
+          "key": "num_specimens",
+          "name": "The total number of specimens collected from the participant PER VISIT. Will be ignored if the previous checkbox was left unchecked.",
+          "required": false,
+          "type": "text"
+        }
+      ]
+    }
+  ]
+}
