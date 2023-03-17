@@ -49,7 +49,7 @@ To build, use `npx mix watch`.    See the [laravel docs](https://laravel-mix.com
 
 - This module works as intended through careful setup of 3 projects (box, specimen, & shipment), with additional required configuration in the Control Center. 
 - It is **strongly recommended** to use the Project XML files provided in the release that corresponds to your version of the module.
-    - https://github.com/dr01d3r/redcap-em-biospecimen-tracking/releases 
+    - https://github.com/dr01d3r/redcap-em-orca-specimen-tracking/releases 
 
 ### Box Project Requirements
 
