@@ -38,7 +38,7 @@ trait RequestHandlers {
     {
         header('Content-Type: application/json; charset=UTF-8');
         http_response_code(400);
-        exit(json_encode($error));
+        exit(json_encode($this->escape($error)));
     }
 
     /**

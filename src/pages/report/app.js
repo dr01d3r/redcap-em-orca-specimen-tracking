@@ -18,6 +18,7 @@ Vue.use(VueCompositionAPI);
 
 //  Mixin
 import mixin from '../../mixin'
+import '../../mixin.css'
 Vue.mixin(mixin);
 
 //  Create Vue Instance and mount our module page container

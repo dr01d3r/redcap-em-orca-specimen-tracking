@@ -224,7 +224,7 @@ AND value = ?";
             ]);
             $specimen = $specimen_data[$record_id][$this->getSpecimenProject()->firstEventId];
             $specimen["name_parsed"] = $this->parseSpecimenName($specimen["name"], $system_config["specimen_name_regex"]);
-            $this->sendResponse($specimen);
+            $this->sendResponse($this->escape($specimen));
         } catch (Exception $ex) {
             $this->sendError($ex->getMessage());
         }
@@ -363,7 +363,7 @@ AND d1.value REGEXP ?";
                     return $p["box_type"] === "00" && $p["sample_type"] == $response["parsed_value"]["sample_type"];
                 }) ?? [];
             }
-            $this->sendResponse($response);
+            $this->sendResponse($this->escape($response));
         } catch (Exception $ex) {
             $this->sendError($ex->getMessage());
         }
@@ -395,7 +395,7 @@ AND d1.value REGEXP ?";
                 $this->sendError($save_result["errors"]);
             }
             $specimen["name_parsed"] = $this->parseSpecimenName($specimen["name"], $system_config["specimen_name_regex"]);
-            $this->sendResponse($specimen);
+            $this->sendResponse($this->escape($specimen));
         } catch (Exception $ex) {
             $this->sendError($ex->getMessage());
         }
@@ -411,7 +411,7 @@ AND d1.value REGEXP ?";
             if ($response === null) {
                 $response = "Delete action failed - One or more parameters were invalid or record does not exist!";
             }
-            $this->sendResponse($response);
+            $this->sendResponse($this->escape($response));
         } catch (Exception $ex) {
             $this->sendError($ex->getMessage());
         }
@@ -424,7 +424,7 @@ AND d1.value REGEXP ?";
                 "isValid" => $isValid,
                 "errors" => $errors ?? []
             ];
-            $this->sendResponse($result);
+            $this->sendResponse($this->escape($result));
         } catch (Exception $ex) {
             $this->sendError($ex->getMessage());
         }
@@ -437,7 +437,7 @@ AND d1.value REGEXP ?";
                 "isValid" => $isValid,
                 "errors" => $errors ?? []
             ];
-            $this->sendResponse($result);
+            $this->sendResponse($this->escape($result));
         } catch (Exception $ex) {
             $this->sendError($ex->getMessage());
         }
