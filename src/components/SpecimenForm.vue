@@ -62,10 +62,16 @@
             <!-- csid -->
             <div class="col-3 mb-2">
                 <label class="form-label">
-                    CSID&nbsp;(
-                    <input type="checkbox" v-model="csidOverride" tabindex="-1" />
-                    <i class="fas fa-info-circle" v-b-popover.hover="'Ignore required validation'"></i>
-                    )
+                    CSID
+                    <template v-if="config.cdc_override_checked === true">
+                        <i class="fas fa-info-circle" v-b-popover.hover="'This field is OPTIONAL due to study study configuration.'"></i>
+                    </template>
+                    <template v-else>
+                        &nbsp;(
+                        <input type="checkbox" v-model="csidOverride" tabindex="-1" />
+                        <i class="fas fa-info-circle" v-b-popover.hover="'Ignore required validation.'"></i>
+                        )
+                    </template>
                 </label>
                 <b-form-input
                         ref="csid_input"
@@ -88,10 +94,16 @@
             <!-- cuid -->
             <div class="col-3 mb-2">
                 <label class="form-label">
-                    CUID&nbsp;(
-                    <input type="checkbox" v-model="cuidOverride" tabindex="-1" />
-                    <i class="fas fa-info-circle" v-b-popover.hover="'Ignore required validation'"></i>
-                    )
+                    CUID
+                    <template v-if="config.cdc_override_checked === true">
+                        <i class="fas fa-info-circle" v-b-popover.hover="'This field is OPTIONAL due to study study configuration.'"></i>
+                    </template>
+                    <template v-else>
+                        &nbsp;(
+                        <input type="checkbox" v-model="cuidOverride" tabindex="-1" />
+                        <i class="fas fa-info-circle" v-b-popover.hover="'Ignore required validation.'"></i>
+                        )
+                    </template>
                 </label>
                 <b-form-input
                         ref="cuid_input"
@@ -343,20 +355,16 @@
                     <i class="fas fa-save"></i>&nbsp;Save
                 </button>
             </div>
-            <template v-if="resetDisable !== 'true'">
-                <div class="col d-grid mb-0">
-                    <button type="button" class="btn btn-block btn-danger" @click.prevent="tryResetSpecimen(false)">
-                        <i class="fas fa-undo"></i>&nbsp;Reset
-                    </button>
-                </div>
-            </template>
-            <template v-if="batchDisable !== 'true'">
-                <div class="col-3 d-grid mb-0">
-                    <button type="button" class="btn btn-block btn-warning text-white" @click.prevent="toggleBatchMode">
-                        <i class="fas fa-sync"></i>&nbsp;Batch Mode: {{ batchMode }}
-                    </button>
-                </div>
-            </template>
+            <div class="col d-grid mb-0">
+                <button type="button" class="btn btn-block btn-danger" @click.prevent="tryResetSpecimen(false)">
+                    <i class="fas fa-undo"></i>&nbsp;Reset
+                </button>
+            </div>
+            <div class="col-3 d-grid mb-0">
+                <button type="button" class="btn btn-block btn-warning text-white" @click.prevent="toggleBatchMode">
+                    <i class="fas fa-sync"></i>&nbsp;Batch Mode: {{ batchMode }}
+                </button>
+            </div>
         </div>
     </b-overlay>
 </template>
@@ -487,11 +495,11 @@
                         specimenMatchesBox: helpers.withMessage('Box nomenclature mismatch - one or more parts do not align with the current box', specimenMatchesBox)
                     },
                     csid: {
-                        requiredUnless: helpers.withMessage('CSID is required', requiredUnless(this.csidOverride)),
+                        requiredUnless: helpers.withMessage('CSID is required', requiredUnless(() => { return this.csidOverride; })),
                         csidFormat: helpers.withMessage('Must be exactly 10 digits', helpers.regex(this.csidFormat))
                     },
                     cuid: {
-                        requiredUnless: helpers.withMessage('CUID is required', requiredUnless(this.cuidOverride)),
+                        requiredUnless: helpers.withMessage('CUID is required', requiredUnless(() => { return this.cuidOverride; })),
                         cuidFormat: helpers.withMessage('Must be 8 alphanumeric in length and contain at least 1 alpha character', helpers.regex(this.cuidFormat))
                     },
                     date_collected: {
@@ -577,8 +585,8 @@
                 warnings: {},
                 isOverlayed: false,
                 focusOverride: false,
-                csidOverride: false,
-                cuidOverride: false,
+                csid_override: false,
+                cuid_override: false,
                 lastFocused: null,
                 batchEnabled: false,
                 debugMsg: null
@@ -678,6 +686,30 @@
                     let parts = newValue.split(' ');
                     this.specimen.date_frozen = parts[0];
                     this.specimen.time_frozen = parts[1];
+                }
+            },
+            csidOverride: {
+                get: function() {
+                    if (this.config && this.config.cdc_override_checked) {
+                        return this.config.cdc_override_checked;
+                    } else {
+                        return this.csid_override;
+                    }
+                },
+                set: function(newValue) {
+                    this.csid_override = newValue;
+                }
+            },
+            cuidOverride: {
+                get: function() {
+                    if (this.config && this.config.cdc_override_checked) {
+                        return this.config.cdc_override_checked;
+                    } else {
+                        return this.cuid_override;
+                    }
+                },
+                set: function(newValue) {
+                    this.cuid_override = newValue;
                 }
             },
             limitCollToProcMax: function() {
@@ -843,19 +875,15 @@
                 switch (data.match_type) {
                     case "exact":
                         if (data.specimen.box_record_id === this.box_record_id) {
-                            Object.assign(this.vuelidateExternalResults, {
-                                specimen: {
-                                    name: [ 'Cannot process specimen as it already exists on this box!' ]
-                                }
+                            Object.assign(this.vuelidateExternalResults.specimen, {
+                                name: [ 'Cannot process specimen as it already exists on this box!' ]
                             });
                             this.$nextTick(() => {
                                 this.v$.specimen.name.$validate();
                             });
                         } else if (data.plate.box_status === 'closed') {
-                            Object.assign(this.vuelidateExternalResults, {
-                                specimen: {
-                                    name: [ 'Cannot process specimen because it exists on a closed box!' ]
-                                }
+                            Object.assign(this.vuelidateExternalResults.specimen, {
+                                name: [ 'Cannot process specimen because it exists on a closed box!' ]
                             });
                             this.$nextTick(() => {
                                 this.v$.specimen.name.$validate();
@@ -932,10 +960,8 @@
                         // validate visit order
                         let this_visit = parseInt(data.parsed_value.visit);
                         if (data.max_visit !== null && this_visit < data.max_visit) {
-                            Object.assign(this.vuelidateExternalResults, {
-                                specimen: {
-                                    name: [ `Visit sequence error - Expected: >= ${data.max_visit}, Actual: ${this_visit}` ]
-                                }
+                            Object.assign(this.vuelidateExternalResults.specimen, {
+                                name: [ `Visit sequence error - Expected: >= ${data.max_visit}, Actual: ${this_visit}` ]
                             });
                             this.$nextTick(() => {
                                 this.v$.specimen.name.$validate();
@@ -1014,10 +1040,8 @@
                         }
                     }
                     if (!isValid) {
-                        Object.assign(this.vuelidateExternalResults, {
-                            specimen: {
-                                name: [ 'Temporary "00" Box Error - One or more specimens for this participant exist in another box!' ]
-                            }
+                        Object.assign(this.vuelidateExternalResults.specimen, {
+                            name: [ 'Temporary "00" Box Error - One or more specimens for this participant exist in another box!' ]
                         });
                         this.$nextTick(() => {
                             this.v$.specimen.name.$validate();
@@ -1028,10 +1052,8 @@
             },
             validateCSIDCallback: function(data) {
                 if (data.isValid !== true) {
-                    Object.assign(this.vuelidateExternalResults, {
-                        specimen: {
-                            csid: data.errors
-                        }
+                    Object.assign(this.vuelidateExternalResults.specimen, {
+                        csid: data.errors
                     });
                     this.$nextTick(() => {
                         this.v$.specimen.csid.$validate();
@@ -1045,10 +1067,8 @@
             },
             validateCUIDCallback: function(data) {
                 if (data.isValid !== true) {
-                    Object.assign(this.vuelidateExternalResults, {
-                        specimen: {
-                            cuid: data.errors
-                        }
+                    Object.assign(this.vuelidateExternalResults.specimen, {
+                        cuid: data.errors
                     });
                     this.$nextTick(() => {
                         this.v$.specimen.cuid.$validate();
@@ -1069,7 +1089,7 @@
                         this.specimen.box_position = response.wellPosition;
                         this.searchSpecimen(this.specimen.name);
                     } else {
-                        Object.assign(this.vuelidateExternalResults, response.errors);
+                        Object.assign(this.vuelidateExternalResults.specimen, response.errors.specimen);
                     }
                 }
             },
@@ -1112,8 +1132,8 @@
                     tech_initials: this.batchEnabled ? this.specimen.tech_initials : null,
                     box_position: preservePosition ? this.specimen.box_position : null
                 };
-                this.csidOverride = false;
-                this.cuidOverride = false;
+                this.csidOverride = this.config.cdc_override_checked ?? false;
+                this.cuidOverride = this.config.cdc_override_checked ?? false;
                 this.v$.specimen.$reset();
             },
             tryResetSpecimen: function(preserveName = false) {

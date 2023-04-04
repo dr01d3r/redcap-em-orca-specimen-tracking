@@ -845,7 +845,7 @@
                     }
                 } catch (e) {
                     response.result = false;
-                    response["errors"]["specimen"]["name"].push(e);
+                    response.errors.specimen.name.push(e);
                 }
                 return response;
             },
