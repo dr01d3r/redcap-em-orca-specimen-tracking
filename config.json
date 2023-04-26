@@ -51,7 +51,7 @@
       "sub_settings": [
         {
           "key": "desc_project_selection",
-          "name": "<h4 class=\"mt-1 py-1 px-2 border-top border-bottom border-dark bg-secondary text-light\">Project Selection</h4><i class=\"text-muted\">Projects used must all be unique, meaning they cannot be used in more than one configuration - doing so will trigger error messages in any projects impacted by the re-use.</i>",
+          "name": "<h4 class=\"mt-1 py-1 px-2 border-top border-bottom border-dark bg-dark text-light\">Project Selection</h4><i class=\"text-muted\">Projects used must all be unique, meaning they cannot be used in more than one configuration - doing so will trigger error messages in any projects impacted by the re-use.</i>",
           "type": "descriptive"
         },
         {
@@ -94,6 +94,10 @@
               "name": "9x9"
             },
             {
+              "value": "10x10",
+              "name": "10x10"
+            },
+            {
               "value": "8x12",
               "name": "8x12"
             }
@@ -133,6 +137,12 @@
           "name": "<p>Override the maximum allowed time, in <code>[MINUTES]</code>, between collected and processed dates, before a warning is given.</p><ul><li>Must be numeric and greater than zero.</li><li>Default value: 1080 (18 hours)</li></ul>Leave this empty to use the default value",
           "required": false,
           "type": "text"
+        },
+        {
+          "key": "cdc_override_checked",
+          "name": "Disable CSID/CUID required validation.  This is a temporary solution for projects that do not use these fields and want to ignore them.<br/><strong>NOTE:</strong> Other validation (i.e. format) still applies",
+          "required": false,
+          "type": "checkbox"
         },
         {
           "key": "desc_mixed_temp_box",

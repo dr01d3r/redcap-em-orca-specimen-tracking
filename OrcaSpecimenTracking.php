@@ -55,6 +55,10 @@ class OrcaSpecimenTracking extends AbstractExternalModule {
                 "row" => 9,
                 "col" => 9
             ],
+            "10x10" => [
+                "row" => 10,
+                "col" => 10
+            ],
             "8x12" => [
                 "row" => 8,
                 "col" => 12

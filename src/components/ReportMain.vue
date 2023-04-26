@@ -89,7 +89,7 @@
             initializeDataTable() {
                 // DataTable initialization
                 this.dataTable = $("#report-table").DataTable({
-                    // iDisplayLength: this.perPage,
+                    iDisplayLength: this.perPage,
                     ajax: OrcaSpecimenTracking().url + '&action=get-specimen-report-data',
                     deferRender: true,
                     columns: [
@@ -114,10 +114,13 @@
                         { data: 'cuid.value' },
                         { data: 'comment.value' },
                     ],
-                    dom: 'Bfrtip',
+                    dom: 'Blfrtip',
                     buttons: [
                         'excelHtml5'
                     ],
+                    initComplete: function () {
+                        $("#report-table_wrapper .dt-buttons").addClass('ml-3 mb-2').find("button").addClass('btn-sm');
+                    }
                 });
             }
         },

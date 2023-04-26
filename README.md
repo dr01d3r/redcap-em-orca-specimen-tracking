@@ -50,6 +50,12 @@ To build, use `npx mix watch`.    See the [laravel docs](https://laravel-mix.com
 - This module works as intended through careful setup of 3 projects (box, specimen, & shipment), with additional required configuration in the Control Center. 
 - It is **strongly recommended** to use the Project XML files provided in the release that corresponds to your version of the module.
     - https://github.com/dr01d3r/redcap-em-orca-specimen-tracking/releases 
+- The following training videos have been made available for use.  Thanks Leila!
+    - [Module Configuration](https://bcove.video/3FLxZXD)
+    - [Creating Boxes](https://bcove.video/40tp1Gt)
+    - [Adding Specimens to a Box](https://bcove.video/3yZNkQI)
+    - [Processing a Shipment](https://bcove.video/3JEUI8P)
+    - [Reporting Dashboard](https://bcove.video/4067aFZ)
 
 ### Box Project Requirements
 
@@ -114,8 +120,7 @@ To build, use `npx mix watch`.    See the [laravel docs](https://laravel-mix.com
             - Consider utilizing the Secondary Unique Field feature for this.
     - `[csid]` & `[cuid]`
         - CDC identification fields
-        - Currently, no way to "opt-in" to these fields, so they always display; however, they can be ignored by clicking the checkbox next to their respective labels.
-        - A future version update will include a Control Center configuration to either opt-in to these fields, or simply select those checkboxes by default.
+        - These fields are required by default; however, a Control Center configuration exists to disable that requirement
     - `[box_position]`
         - The aliquot's position in the box. 
     - `[mhn]`

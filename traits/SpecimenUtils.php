@@ -173,8 +173,8 @@ AND r1.value = ?";
             $r = $this->parseSpecimenName($row["value"], $system_config["specimen_name_regex"]);
             // lookup => participant_id -> visit -> sample_type
             if ($r["participant_id"] !== $s["participant_id"]
-                && $r["visit"] !== $s["visit"]
-                && $r["sample_type"] !== $s["sample_type"]) {
+                || $r["visit"] !== $s["visit"]
+                || $r["sample_type"] !== $s["sample_type"]) {
                 // invalidate and provide an error message
                 $is_valid = false;
                 $errors[] = "CSID already assigned to [" . $row["value"] . "]";

@@ -55,6 +55,7 @@ trait ModuleUtils {
         $system_settings["box_name_regex"] = $this->getSystemSetting("box_name_regex");
         $system_settings["specimen_name_regex"] = $this->getSystemSetting("specimen_name_regex");
         $system_settings["collected_to_processed_minutes_max"] = $this->getSystemSetting("collected_to_processed_minutes_max");
+        $system_settings["cdc_override_checked"] = $this->getSystemSetting("cdc_override_checked");
         // process each configuration
         foreach ($system_settings["project_configs"] as $k => $v) {
             // build initial config entry
@@ -77,6 +78,7 @@ trait ModuleUtils {
                 "specimen_name_regex" => $system_settings["specimen_name_regex"][$k],
                 "use_temp_box_type" => $system_settings["use_temp_box_type"][$k] === true,
                 "collected_to_processed_minutes_max" => $system_settings["collected_to_processed_minutes_max"][$k],
+                "cdc_override_checked" => $system_settings["cdc_override_checked"][$k],
                 "errors" => []
             ];
 

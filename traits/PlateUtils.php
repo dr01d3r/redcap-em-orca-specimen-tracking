@@ -125,6 +125,7 @@ trait PlateUtils {
                 "datetime_format" => $system_config["datetime_format"],
                 "shipment_dashboard_base_url" => $this->getUrl("views/shipment.php"),
                 "sample_type_units" => $this->_config["sample_type_units"],
+                "cdc_override_checked" => $system_config["cdc_override_checked"],
             ];
 
             // temporary "00" box related configurations
