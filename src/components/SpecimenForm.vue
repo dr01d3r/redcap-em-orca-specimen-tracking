@@ -43,7 +43,8 @@
                     <b-form-input
                             ref="specimen_id_input"
                             autocomplete="off"
-                            @keyup.enter="specimenScanned"
+                            @keydown.enter="focusNext"
+                            @keyup.enter="focusNext"
                             @blur="specimenScanned"
                             v-model="specimen.name"
                             :state="v$.specimen.name.$error ? false : null"
@@ -76,7 +77,8 @@
                 <b-form-input
                         ref="csid_input"
                         autocomplete="off"
-                        @keyup.enter="csidScanned"
+                        @keydown.enter="focusNext"
+                        @keyup.enter="focusNext"
                         @blur="csidScanned"
                         v-model="specimen.csid"
                         :state="v$.specimen.csid.$error ? false : null"
@@ -108,7 +110,8 @@
                 <b-form-input
                         ref="cuid_input"
                         autocomplete="off"
-                        @keyup.enter="cuidScanned"
+                        @keydown.enter="focusNext"
+                        @keyup.enter="focusNext"
                         @blur="cuidScanned"
                         v-model="specimen.cuid"
                         :state="v$.specimen.cuid.$error ? false : null"
@@ -200,7 +203,7 @@
             </div>
             <!-- specimen.volume -->
             <div class="col-3 mb-2">
-                <label class="form-label">Volume ({{ unitDisplay }})</label>
+                <label class="form-label">Volume{{ unitDisplay }}</label>
                 <b-form-input
                         ref="volume_input"
                         autocomplete="off"
@@ -533,7 +536,7 @@
                     },
                     volume: {
                         required: helpers.withMessage('Volume is required', required),
-                        volumeFormat: helpers.withMessage('Invalid Format', helpers.regex(this.volumeFormat))
+                        volumeFormat: helpers.withMessage('Invalid Format - Must be numeric with 1 decimal place (i.e. 1.0)', helpers.regex(this.volumeFormat))
                     },
                     tech_initials: {
                         required: helpers.withMessage('Tech Initials is required', required)
@@ -722,11 +725,13 @@
                 return this.batchEnabled ? ' alert-warning border-warning' : '';
             },
             unitDisplay: function() {
-                let units = '';
                 if (this.box_info && this.box_info.sample_type) {
-                    units = this.config['sample_type_units'][this.box_info.sample_type];
+                    let unit = this.config['sample_type_units'][this.box_info.sample_type];
+                    if (unit) {
+                        return ` (${unit})`;
+                    }
                 }
-                return units;
+                return '';
             },
             debugOutput: function() {
                 return JSON.stringify(this.debugMsg, null, '\t');
@@ -836,7 +841,7 @@
             },
             async searchSpecimen(search_value) {
                 this.isOverlayed = true;
-                this.focusOverride = true;
+                // this.focusOverride = true;
                 this.resetSpecimen(true, true);
                 const data = {
                     redcap_csrf_token: OrcaSpecimenTracking().redcap_csrf_token,
@@ -976,8 +981,8 @@
                             'Participant Match (' + data.specimen.name + ')',
                             'info'
                         );
-                        this.focusOverride = false;
-                        this.focusElement('csid_input');
+                        // this.focusOverride = false;
+                        // this.focusElement('csid_input');
                         break;
                     case "full":
                         // additional validation based on match data from the server
@@ -1009,8 +1014,8 @@
                             'No Match Found',
                             'info'
                         );
-                        this.focusOverride = false;
-                        this.focusElement('csid_input');
+                        // this.focusOverride = false;
+                        // this.focusElement('csid_input');
                         break;
                 }
                 this.v$.specimen.name.$reset();
@@ -1051,7 +1056,7 @@
                 return isValid;
             },
             validateCSIDCallback: function(data) {
-                if (data.isValid !== true) {
+                if (data.isValid === false && data.errors && data.length > 0) {
                     Object.assign(this.vuelidateExternalResults.specimen, {
                         csid: data.errors
                     });
@@ -1059,14 +1064,16 @@
                         this.v$.specimen.csid.$validate();
                     });
                 } else {
-                    this.focusElement('cuid_input');
+                    // this.focusOverride = false;
+                    // this.focusElement('cuid_input');
+                    this.v$.specimen.csid.$reset();
                 }
             },
             validateCSID: function(specimen, csid) {
                 this.post('validate-csid', { specimen: specimen, csid: csid }, this.validateCSIDCallback);
             },
             validateCUIDCallback: function(data) {
-                if (data.isValid !== true) {
+                if (data.isValid === false && data.errors && data.length > 0) {
                     Object.assign(this.vuelidateExternalResults.specimen, {
                         cuid: data.errors
                     });
@@ -1074,8 +1081,9 @@
                         this.v$.specimen.cuid.$validate();
                     });
                 } else {
-                    this.focusOverride = false;
-                    this.focusElement('date_collected');
+                    // this.focusOverride = false;
+                    // this.focusElement('date_collected');
+                    this.v$.specimen.cuid.$reset();
                 }
             },
             validateCUID: function(cuid) {
@@ -1097,6 +1105,8 @@
                 if (this.v$.specimen.cuid.$dirty && !this.v$.specimen.cuid.$error) {
                     this.v$.specimen.cuid.$reset();
                     this.validateCUID(this.specimen.cuid);
+                } else {
+                    this.validateCUIDCallback({});
                 }
             },
             csidScanned: function(e) {
@@ -1105,6 +1115,8 @@
                 ) {
                     this.v$.specimen.csid.$reset();
                     this.validateCSID(this.specimen.name, this.specimen.csid);
+                } else {
+                    this.validateCSIDCallback({});
                 }
             },
             appendComment: function(comments = [], separator = '\n') {
@@ -1294,12 +1306,13 @@
                                 }
                             }
                             switch (id_ref) {
-                                case 'csid_input':      this.focusElement('cuid_input'); break;
-                                case 'cuid_input':      this.focusElement('date_collected'); break;
-                                case 'time_collected':  this.focusElement('mhn_input'); break;
-                                case 'mhn_input':       this.focusElement('mhn_verify'); break;
-                                case 'mhn_verify':      this.focusElement('volume_input'); break;
-                                case 'volume_input':    this.focusElement('comment'); break;
+                                case 'specimen_id_input': this.focusElement('csid_input'); break;
+                                case 'csid_input':        this.focusElement('cuid_input'); break;
+                                case 'cuid_input':        this.focusElement('date_collected'); break;
+                                case 'time_collected':    this.focusElement('mhn_input'); break;
+                                case 'mhn_input':         this.focusElement('mhn_verify'); break;
+                                case 'mhn_verify':        this.focusElement('volume_input'); break;
+                                case 'volume_input':      this.focusElement('comment'); break;
                                 case 'comment':
                                     if (this.batchEnabled) {
                                         this.focusElement('btn_specimen_save');
@@ -1307,8 +1320,8 @@
                                         this.focusElement('date_processed');
                                     }
                                     break;
-                                case 'time_processed':  this.focusElement('date_frozen'); break;
-                                case 'time_frozen':     this.focusElement('tech_initials'); break;
+                                case 'time_processed':    this.focusElement('date_frozen'); break;
+                                case 'time_frozen':       this.focusElement('tech_initials'); break;
                             }
                         }
                         break;

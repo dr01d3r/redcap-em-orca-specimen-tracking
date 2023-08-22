@@ -284,11 +284,11 @@
         },
         watch: {
             currentWell: function (newWell, oldWell) {
-                if (newWell) {
-                    newWell.isSelected = true;
-                }
                 if (oldWell) {
                     oldWell.isSelected = false;
+                }
+                if (newWell) {
+                    newWell.isSelected = true;
                 }
             },
             specimens: function (newVal, oldVal) {
@@ -457,6 +457,7 @@
             initializePlate: function() {
                 let wells = {};
                 let maxSpecimens = 0;
+                this.currentWell = null;
                 for (let r = 0; r < this.config.plate_size.row; r++) {
                     let row = {};
                     const rowKey = this.config.alphabet[r];
