@@ -203,7 +203,7 @@
             </div>
             <!-- specimen.volume -->
             <div class="col-3 mb-2">
-                <label class="form-label">Volume{{ unitDisplay }}</label>
+                <label class="form-label">{{ volumeLabel }}</label>
                 <b-form-input
                         ref="volume_input"
                         autocomplete="off"
@@ -523,12 +523,12 @@
                         timeFormat: helpers.withMessage('Invalid Time Format', helpers.regex(this.timeFormat))
                     },
                     date_frozen: {
-                        required: helpers.withMessage('Frozen Date is required', required),
+                        // required: helpers.withMessage('Frozen Date is required', required),
                         notInTheFuture: helpers.withMessage('Frozen Date/Time cannot be in the future', notInTheFuture(this.dateTimeFrozen)),
                         notBeforeProcessed: helpers.withMessage('Frozen Date/Time must be after Processed Date/Time', notBeforeProcessed(this.dateTimeFrozen)),
                     },
                     time_frozen: {
-                        required: helpers.withMessage('Frozen Time is required', required),
+                        // required: helpers.withMessage('Frozen Time is required', required),
                         timeFormat: helpers.withMessage('Invalid Time Format', helpers.regex(this.timeFormat))
                     },
                     mhn_verify: {
@@ -724,14 +724,15 @@
             batchModeClass: function() {
                 return this.batchEnabled ? ' alert-warning border-warning' : '';
             },
-            unitDisplay: function() {
+            volumeLabel: function() {
                 if (this.box_info && this.box_info.sample_type) {
-                    let unit = this.config['sample_type_units'][this.box_info.sample_type];
-                    if (unit) {
-                        return ` (${unit})`;
+                    // make this check case-insensitive
+                    let label = this.config['sample_type_units'][this.box_info.sample_type.toLowerCase()];
+                    if (label) {
+                        return label;
                     }
                 }
-                return '';
+                return 'Volume';
             },
             debugOutput: function() {
                 return JSON.stringify(this.debugMsg, null, '\t');
@@ -879,7 +880,8 @@
             searchSpecimenCallback: function(data) {
                 switch (data.match_type) {
                     case "exact":
-                        if (data.specimen.box_record_id === this.box_record_id) {
+                        if (data.specimen.box_record_id === this.box_record_id &&
+                            data.specimen.box_position === this.specimen.box_position) {
                             Object.assign(this.vuelidateExternalResults.specimen, {
                                 name: [ 'Cannot process specimen as it already exists on this box!' ]
                             });

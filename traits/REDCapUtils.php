@@ -467,4 +467,8 @@ trait REDCapUtils {
             return htmlspecialchars(''.$value, ENT_QUOTES);
         }
     }
+
+    public function getDataTable($project_id) {
+        return method_exists('\REDCap', 'getDataTable') ? \REDCap::getDataTable($project_id) : "redcap_data";
+    }
 }

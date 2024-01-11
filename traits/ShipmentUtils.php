@@ -145,12 +145,13 @@ trait ShipmentUtils {
         if (empty($shipment)) return;
 
         // use raw SQL to quickly identify all boxes associated with this shipment
+        $dt_box = $this->getDataTable($this->getPlateProject()->project_id);
         $box_query_result = $this->query("
 SELECT d1.record
 , d1.value 'shipment_record_id'
 , d2.value 'box_name'
-FROM redcap_data d1
-JOIN redcap_data d2 ON d1.project_id = d2.project_id AND d1.record = d2.record AND d2.field_name = 'box_name'
+FROM $dt_box d1
+JOIN $dt_box d2 ON d1.project_id = d2.project_id AND d1.record = d2.record AND d2.field_name = 'box_name'
 WHERE d1.project_id = ?
 AND d1.field_name = 'shipment_record_id'
 AND d1.value = ?
@@ -168,6 +169,7 @@ ORDER BY d2.value",
         unset($box_query_result);
 
         // use raw SQL to quickly identify all specimens associated with these boxes
+        $dt_specimen = $this->getDataTable($this->getSpecimenProject()->project_id);
         $specimen_query = $this->createQuery();
         $specimen_query->add("
 SELECT d1.record
@@ -178,13 +180,13 @@ SELECT d1.record
 , d5.value 'box_position'
 , d6.value 'volume'
 , d7.value 'comment'
-FROM redcap_data d1
-JOIN redcap_data d2 ON d1.project_id = d2.project_id AND d1.record = d2.record AND d2.field_name = 'name'
-LEFT OUTER JOIN redcap_data d3 ON d1.project_id = d3.project_id AND d1.record = d3.record AND d3.field_name = 'csid'
-LEFT OUTER JOIN redcap_data d4 ON d1.project_id = d4.project_id AND d1.record = d4.record AND d4.field_name = 'cuid'
-LEFT OUTER JOIN redcap_data d5 ON d1.project_id = d5.project_id AND d1.record = d5.record AND d5.field_name = 'box_position'
-LEFT OUTER JOIN redcap_data d6 ON d1.project_id = d6.project_id AND d1.record = d6.record AND d6.field_name = 'volume'
-LEFT OUTER JOIN redcap_data d7 ON d1.project_id = d7.project_id AND d1.record = d7.record AND d7.field_name = 'comment'
+FROM $dt_specimen d1
+JOIN $dt_specimen d2 ON d1.project_id = d2.project_id AND d1.record = d2.record AND d2.field_name = 'name'
+LEFT OUTER JOIN $dt_specimen d3 ON d1.project_id = d3.project_id AND d1.record = d3.record AND d3.field_name = 'csid'
+LEFT OUTER JOIN $dt_specimen d4 ON d1.project_id = d4.project_id AND d1.record = d4.record AND d4.field_name = 'cuid'
+LEFT OUTER JOIN $dt_specimen d5 ON d1.project_id = d5.project_id AND d1.record = d5.record AND d5.field_name = 'box_position'
+LEFT OUTER JOIN $dt_specimen d6 ON d1.project_id = d6.project_id AND d1.record = d6.record AND d6.field_name = 'volume'
+LEFT OUTER JOIN $dt_specimen d7 ON d1.project_id = d7.project_id AND d1.record = d7.record AND d7.field_name = 'comment'
 WHERE d1.project_id = ?
 AND d1.field_name = 'box_record_id'
 ",

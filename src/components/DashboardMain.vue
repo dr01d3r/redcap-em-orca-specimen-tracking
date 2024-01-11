@@ -129,7 +129,7 @@
                             <th scope="col">Collection</th>
                             <th scope="col">Processed</th>
                             <th scope="col">Frozen</th>
-                            <th scope="col">Volume (ml)</th>
+                            <th scope="col">{{ volumeLabel }}</th>
                             <th scope="col">MHN</th>
                         </tr>
                         </thead>
@@ -150,7 +150,7 @@
                                     {{ s.name }}
                                 </th>
                                 <!-- box_position -->
-                                <td scope="row" :data-sort="s.box_position">
+                                <td :data-sort="s.box_position">
                                     {{ s.box_position }}
                                 </td>
                                 <!-- date_time_collected -->
@@ -364,7 +364,17 @@
             },
             canEditSpecimens: function() {
                 return !this.isReadOnly && !this.isPlateStatusClosed;
-            }
+            },
+            volumeLabel: function() {
+                if (this.plate && this.plate.sample_type) {
+                    // make this check case-insensitive
+                    let label = this.config['sample_type_units'][this.plate.sample_type.toLowerCase()];
+                    if (label) {
+                        return label;
+                    }
+                }
+                return 'Volume';
+            },
         },
         methods: {
             async post(action, data, callback, doOverlay = true) {
@@ -632,12 +642,26 @@
                 if (specimen) {
                     const index = this.specimens.findIndex(s => s.record_id === specimen.record_id);
                     if (index >= 0) {
-                        this.specimens.splice(index, 1, specimen);
-                        this.toast(
-                            'Specimen edited successfully',
-                            'Edit Successful!',
-                            'success'
-                        );
+                        // was this a move within the existing box?
+                        if (this.specimens[index].box_position !== specimen.box_position) {
+                            // move the specimen
+                            this.moveSpecimenWithinPlate(this.specimens[index].box_position, specimen)
+                            // update specimen list
+                            this.specimens.splice(index, 1, specimen);
+                            // toast!
+                            this.toast(
+                                'Specimen moved successfully',
+                                'Move Successful!',
+                                'success'
+                            );
+                        } else {
+                            this.specimens.splice(index, 1, specimen);
+                            this.toast(
+                                'Specimen edited successfully',
+                                'Edit Successful!',
+                                'success'
+                            );
+                        }
                     } else {
                         this.specimens.push(specimen);
                         this.toast(
@@ -665,6 +689,20 @@
                         };
                     }
                     this.participantMap[participant_id].participantGroup = this.wells[row][col].participantGroup;
+                }
+            },
+            moveSpecimenWithinPlate: function(oldPos, specimen) {
+                let errors = {};
+                let rxOld = this.rx_well_position.exec(oldPos);
+                let rxNew = this.rx_well_position.exec(specimen.box_position);
+                if (rxOld === null || rxNew === null) {
+                    errors['specimen_move'] = `Failed to move specimen from '${oldPos}' to '${specimen.box_position}' - invalid/missing value for Box Position.`;
+                } else {
+                    this.wells[rxNew[1]][rxNew[2]].specimen = specimen;
+                    this.wells[rxOld[1]][rxOld[2]].specimen = null;
+                }
+                if (!this.isObjectEmpty(errors)) {
+                    this.errors = Object.assign(this.errors, errors);
                 }
             },
             loadSpecimensToPlate: function(specimens) {

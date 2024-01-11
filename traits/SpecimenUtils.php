@@ -128,10 +128,11 @@ trait SpecimenUtils {
         // this will not have a matching replacement element as we just want it cleared out
         $patterns[] = "(\?\<\w*\>)";
 
+        $dt_specimen = $this->getDataTable($this->getSpecimenProject()->project_id);
         $sql_name_regex = preg_replace($patterns, $replacements, $system_config["specimen_name_regex"]);
         $sql_1 = "SELECT d1.record, d1.value 'name', d2.value 'csid'
-FROM redcap_data d1
-JOIN redcap_data d2 ON d1.project_id = d2.project_id AND d1.record = d2.record AND d2.field_name = 'csid'
+FROM $dt_specimen d1
+JOIN $dt_specimen d2 ON d1.project_id = d2.project_id AND d1.record = d2.record AND d2.field_name = 'csid'
 WHERE d1.project_id = ?
 AND d1.field_name = 'name'
 AND d1.value <> ?
@@ -158,8 +159,8 @@ AND d1.value REGEXP ?";
         // grab any specimen names that match csid exactly
         $sql_2 = "SELECT r1.record
 , r2.value
-FROM redcap_data r1
-JOIN redcap_data r2 ON r1.project_id = r2.project_id AND r1.record = r2.record AND r2.field_name = 'name'
+FROM $dt_specimen r1
+JOIN $dt_specimen r2 ON r1.project_id = r2.project_id AND r1.record = r2.record AND r2.field_name = 'name'
 WHERE r1.project_id = ?
 AND r1.field_name = 'csid'
 AND r1.value = ?";
@@ -193,8 +194,9 @@ AND r1.value = ?";
 
         $errors = [];
 
+        $dt_specimen = $this->getDataTable($this->getSpecimenProject()->project_id);
         $sql = "SELECT 1
-FROM redcap_data
+FROM $dt_specimen
 WHERE project_id = ?
 AND field_name = 'cuid'
 AND value = ?";
@@ -248,9 +250,10 @@ AND value = ?";
                 "max_visit" => null
             ];
             // use raw sql initially for fast search by participant_id
+            $dt_specimen = $this->getDataTable($this->getSpecimenProject()->project_id);
             $sql = "SELECT d1.record, d1.value 'name', d2.value 'box_record_id'
-FROM redcap_data d1
-JOIN redcap_data d2 ON d1.project_id = d2.project_id AND d1.record = d2.record AND d2.field_name = 'box_record_id'
+FROM $dt_specimen d1
+JOIN $dt_specimen d2 ON d1.project_id = d2.project_id AND d1.record = d2.record AND d2.field_name = 'box_record_id'
 WHERE d1.project_id = ?
 AND d1.field_name = 'name'
 AND d1.value REGEXP ?";

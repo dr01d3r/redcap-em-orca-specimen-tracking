@@ -136,7 +136,7 @@ To build, use `npx mix watch`.    See the [laravel docs](https://laravel-mix.com
         - Tracks the date & time the specimen was processed. 
     - `[date_time_frozen]`
         - Required Field Type: `Datetime (M-D-Y H:M)`
-        - Tracks the date & time the specimen was frozen. 
+        - Tracks the date & time the specimen was frozen (i.e. -80).
     - `[tech_initials]`
         - Free-text field to track who processed the specimen. 
     - `[comment]`
@@ -332,7 +332,8 @@ As seen in the images below, there is a significant amount of validation sitting
   - Cannot be in the future
   - Cannot be before Collected DateTime
 - Frozen Date & Time
-  - Both fields are Required (they combine into a singular `Datetime (M-D-Y H:M)` field)
+  - Not Required
+  - Combine into a singular `Datetime (M-D-Y H:M)` field
   - The Time field is in 24-hr military time (i.e. 0800 or 1600)
   - Cannot be in the future
   - Cannot be before Processed DateTime
