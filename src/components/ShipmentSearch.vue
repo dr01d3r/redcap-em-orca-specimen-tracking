@@ -1,163 +1,120 @@
-<template>
-    <b-overlay variant="light"
-               blur="50px"
-               spinner-variant="dark"
-               spinner-small
-               opacity="0.95"
-               :show="isOverlayed"
-               rounded="sm">
-        <div class="row">
-            <div class="col">
-                <b-pagination
-                    v-model="currentPage"
-                    :total-rows="totalRows"
-                    :per-page="perPage"
-                    aria-controls="shipment-search"
-                ></b-pagination>
-            </div>
-            <div class="col-auto">
-                <b-form-input
-                    id="filter-input"
-                    v-model="filter"
-                    type="search"
-                    placeholder="Type to Search"
-                />
-            </div>
-        </div>
-        <b-table
-            id="shipment-search"
-            :items="sortedShipments"
-            :fields="shipmentFields"
-            :filter="filter"
-            :per-page="perPage"
-            :current-page="currentPage"
-            :select-mode="selectMode"
-            selectable
-            @row-selected="shipmentSelected"
-            @filtered="onFiltered"
-            responsive
-        ></b-table>
+<script setup>
+import {ref, computed, onMounted, watch, nextTick} from 'vue';
+import {useToast} from "primevue/usetoast";
+import { FilterMatchMode } from '@primevue/core/api';
 
-        <template v-if="debugMsg != null">
-            <pre class="well">{{ debugOutput }}</pre>
-        </template>
+const toast = useToast();
+const showToast = (type, summary, detail) => {
+    toast.add({
+        severity: type,
+        summary: summary,
+        detail: detail,
+        life: 3000
+    });
+};
 
-        <a :href="config.new_shipment_url" class="btn btn-success text-light"><i class="fas fa-plus"></i>&nbsp;New Shipment</a>
-    </b-overlay>
-</template>
+const isLoading = ref(false);
+const debug = ref();
 
-<script>
-    // QS
-    import qs from 'qs';
-    // Loader
-    import loader from '../loader.vue'
+const config = ref({});
+const shipments = ref([]);
+const perPage = ref(20);
+const totalRows = ref(0);
+const currentPage = ref(1);
+const filters = ref({
+    global: { value: null, matchMode: FilterMatchMode.CONTAINS }
+});
 
-    export default {
-        components: {
-            qs,
-            loader,
-        },
-        data() {
-            return {
-                config: {},
-                debugMsg: null,
-                isOverlayed: false,
-                shipments: [],
-                perPage: 25,
-                totalRows: 0,
-                currentPage: 1,
-                filter: null,
-                selectMode: 'single'
-            }
-        },
-        watch: {
-            shipments: function(val) {
-                // update helper fields
-                this.totalRows = this.shipments.length ?? 0;
-            }
-        },
-        computed: {
-            sortedShipments: function() {
-                if (this.shipments.sort) {
-                    return this.shipments.sort((a, b) => {
-                        if (a.record_id < b.record_id) { return -1; }
-                        if (a.record_id > b.record_id) { return 1; }
-                        return 0;
-                    });
-                }
-                return this.shipments;
-            },
-            shipmentFields: function() {
-                if (this.config && this.config.shipment_fields) {
-                    return this.config.shipment_fields;
-                }
-                return [];
-            },
-            debugOutput: function() {
-                return JSON.stringify(this.debugMsg, null, '\t');
-            }
-        },
-        methods: {
-            async update() {
-                this.isOverlayed = true;
-                const data = {
-                    redcap_csrf_token: OrcaSpecimenTracking().redcap_csrf_token,
-                    action: 'search-shipments'
-                };
-                this.axios({
-                    url: OrcaSpecimenTracking().url,
-                    method: 'post',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    data: qs.stringify(data)
-                })
-                .then(response => {
-                    if (response.data) {
-                        this.config = response.data.config;
-                        this.shipments = response.data.shipments ?? [];
-                        // debug
-                        // this.debugMsg = response.data;
-                    }
-                })
-                .catch(e => {
-                    let errorMsg = 'An unknown error occurred';
-                    if (e.response.data) {
-                        errorMsg = e.response.data;
-                    }
-                    this.toast(
-                        errorMsg,
-                        'Failed to load shipments!',
-                        'danger'
-                    );
-                })
-                .finally(() => {
-                    setTimeout(() => {
-                        this.isOverlayed = false;
-                    }, 250);
-                });
-            },
-            shipmentSelected(items) {
-                if (items.length === 1) {
-                    this.goToShipment(items[0]);
-                }
-            },
-            goToShipment(s) {
-                if (s && s.shipment_dashboard_url) {
-                    window.location.href = s.shipment_dashboard_url;
-                }
-            },
-            onFiltered(filteredItems) {
-                // Trigger pagination to update the number of buttons/pages due to filtering
-                this.totalRows = filteredItems.length;
-                this.currentPage = 1;
-            }
-        },
-        mounted() {
-            this.$nextTick(function () {
-                this.update();
-            });
-        }
+watch(shipments, async (newVal, oldVal) => {
+    // update helper fields
+    totalRows.value = shipments.value.length ?? 0;
+});
+
+const sortedShipments = computed(() => {
+    if (shipments.value.sort) {
+        return shipments.value.sort((a, b) => {
+            if (a.record_id < b.record_id) { return -1; }
+            if (a.record_id > b.record_id) { return 1; }
+            return 0;
+        });
     }
+    return shipments.value;
+});
+
+const shipmentFields = computed(() => {
+    if (config.value && config.value.fields) {
+        return config.value.fields['shipment'];
+    }
+    return {};
+});
+
+const update = async () => {
+    isLoading.value = true;
+    OrcaSpecimenTracking().jsmo.ajax('search-shipments', {})
+    .then(response => {
+        if (response) {
+            config.value = response.config;
+            shipments.value = response.shipments ?? [];
+            // debug
+            // debug.value = response;
+        }
+    })
+    .catch(e => {
+        let errorMsg = 'An unknown error occurred';
+        if (e.message) {
+            errorMsg = e.message;
+        }
+        showToast("error", "Failed to load shipments!", errorMsg);
+    })
+    .finally(() => {
+        setTimeout(() => {
+            isLoading.value = false;
+        }, 250);
+    });
+};
+const goToShipment = (s) => {
+    if (s && s.shipment_dashboard_url) {
+        window.location.href = s.shipment_dashboard_url;
+    }
+};
+onMounted(() => {
+    nextTick(function () {
+        update();
+    });
+});
 </script>
+
+<template>
+    <BlockUI :blocked="isLoading">
+        <DataTable :value="sortedShipments" size="small" tableClass="table table-striped table-hover"
+                   :globalFilterFields="Object.keys(shipmentFields)" v-model:filters="filters"
+                   paginator :rows="perPage" :rowsPerPageOptions="[5, 10, 20, 50]" scrollable
+                   paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
+        >
+            <template #header>
+                <div class="d-flex">
+                    <div class="input-group w-auto ms-auto">
+                        <div class="input-group-text"><i class="fas fa-search"></i></div>
+                        <input type="text" class="form-control" v-model="filters['global'].value" placeholder="Keyword Search">
+                    </div>
+                </div>
+            </template>
+            <Column :key="col" :field="col" :header="label">
+                <template #body="slotProps">
+                    <button class="btn btn-xs btn-primary" @click="goToShipment(slotProps.data)"><i class="fas fa-edit"></i>&nbsp;Open</button>
+                </template>
+            </Column>
+            <template v-for="(cv, col) of shipmentFields">
+                <Column v-if="config['save-state']['shipment'][col]['shipment-list']" :key="col" :field="col" :header="cv['field_label']"></Column>
+            </template>
+        </DataTable>
+
+        <pre v-if="debug" class="mt-3">{{ debug }}</pre>
+
+        <a :href="config.new_shipment_url" class="btn btn-success text-light mt-3"><i class="fas fa-plus"></i>&nbsp;New Shipment</a>
+    </BlockUI>
+    <ProgressSpinner v-show="isLoading" class="overlay"/>
+</template>
 
 <style scoped>
     table tbody tr:hover {

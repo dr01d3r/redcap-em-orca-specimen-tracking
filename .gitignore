@@ -1,10 +1,7 @@
-# PHPStorm
-/.idea/
-
 # NodeJS
 /node_modules/
 
-# Laravel Mix Build Folder
+# Build Folder
 /dist/
 
 # Composer

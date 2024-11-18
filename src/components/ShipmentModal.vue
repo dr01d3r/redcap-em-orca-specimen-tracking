@@ -1,27 +1,24 @@
-<template>
-    <b-modal
-        size="xl"
-        title="Find Shipment"
-        id="shipment-search-modal"
-        ref="shipmentSearchModal"
-    >
-        <template #default>
-            <shipment-search />
-        </template>
-        <template #modal-footer>&nbsp;</template>
-    </b-modal>
-</template>
+<script setup>
+import { ref } from 'vue';
+import ShipmentSearch from './ShipmentSearch.vue'
 
-<script>
-    import ShipmentSearch from './ShipmentSearch'
+defineExpose({
+    show
+});
 
-    export default {
-        components: {
-            ShipmentSearch
-        }
-    }
+const dialogVisible = ref(false);
+
+function show() {
+    // finally show the dialog, if not already shown
+    dialogVisible.value = true;
+}
 </script>
 
-<style scoped>
+<template>
+    <Dialog v-model:visible="dialogVisible" modal header="Find Shipment" class="mw-100">
+        <shipment-search />
+        <template #footer></template>
+    </Dialog>
+</template>
 
-</style>
+<style scoped></style>

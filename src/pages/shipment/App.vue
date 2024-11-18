@@ -3,7 +3,7 @@
 </template>
 
 <script>
-    import ShipmentMain from '../../components/ShipmentMain'
+    import ShipmentMain from '../../components/ShipmentMain.vue'
     export default {
         components: {
             ShipmentMain

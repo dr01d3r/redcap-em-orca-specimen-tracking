@@ -2,16 +2,78 @@
 /** @var \ORCA\OrcaSpecimenTracking\OrcaSpecimenTracking $this */
 namespace ORCA\OrcaSpecimenTracking;
 
+use JetBrains\PhpStorm\NoReturn;
+
 trait RequestHandlers {
-    /**
-     * Gets Base URL to Request Handler
-     *
-     * @return string
-     * @since 1.0.0
-     */
-    public function getBaseUrl(): string
-    {
-        return $this->getUrl("requestHandler.php");
+    function redcap_module_ajax($action, $payload, $project_id) {
+        $response = [
+            "errors" => []
+        ];
+        try {
+            // get system configuration
+            $system_config = $this->getConfiguration($project_id);
+            // if any errors
+            if (!empty($system_config["errors"])) {
+                // end the request and send back the error(s)
+                $response["errors"] = $system_config["errors"];
+            } else {
+                // establish context
+                $this->setConfigProjectContext($system_config);
+                switch ($action) {
+                    case "initialize-config-dashboard":
+                        $response = $this->handleInitializeConfigDashboard($system_config);
+                        break;
+                    case "initialize-box-dashboard":
+                        $response = $this->handleInitializeBoxDashboard();
+                        break;
+                    case "initialize-shipment-dashboard":
+                        $response = $this->handleInitializeShipmentDashboard($system_config, $payload);
+                        break;
+                    case "save-module-config":
+                        $response = $this->handleSaveModuleConfig($payload);
+                        break;
+                    case "get-report-data":
+                        $response = $this->handleGetReportData();
+                        break;
+                    case "get-box":
+                        $response = $this->handleGetBox($system_config, $payload);
+                        break;
+                    case "get-box-list":
+                        $response = $this->handleGetBoxList($system_config);
+                        break;
+                    case "search-box-list":
+                        $response = $this->handleSearchBoxList($system_config, $payload);
+                        break;
+                    case "get-specimen":
+                        $response = $this->handleGetSpecimen($payload['specimen_record_id'], $system_config);
+                        break;
+                    case "search-specimen":
+                        $response = $this->handleSearchSpecimen($payload['search_value'], $system_config);
+                        break;
+                    case "save-specimen":
+                        $response = $this->handleSaveSpecimen($payload['specimen']);
+                        break;
+                    case "delete-specimen":
+                        $response = $this->handleDeleteSpecimen($payload['specimen_record_id']);
+                        break;
+                    case "search-shipments":
+                        $response = $this->handleSearchShipments();
+                        break;
+                    case "complete-shipment":
+                        $response = $this->handleCompleteShipment($payload['shipment_record_id'], $system_config);
+                        break;
+                    case "update-box-shipment":
+                        $response = $this->handleUpdateBoxShipment($payload['box_record_id'], $payload['shipment_record_id'], $system_config);
+                        break;
+                    default:
+                        $response["errors"][] = "Unable to process request. Action '$action' is invalid.";
+                        break;
+                }
+            }
+        } catch (\Exception $ex) {
+            $response["errors"][] = $ex->getMessage();
+        }
+        return $response;
     }
 
     /**
@@ -19,7 +81,6 @@ trait RequestHandlers {
      *
      * @param mixed $response
      * @return void
-     * @since 1.0.0
      */
     public function sendResponse($response) : void
     {
@@ -32,7 +93,6 @@ trait RequestHandlers {
      *
      * @param mixed $error Optional error details.  Will be JSON encoded.
      * @return void
-     * @since 1.0.0
      */
     public function sendError($error = "") : void
     {
@@ -42,97 +102,15 @@ trait RequestHandlers {
     }
 
     /**
-     * @param string $search_value
-     * @param array $system_config
-     * @param bool $include_specimens Include specimens (default: true)
-     * @return void
-     * @since 1.0.1
-     */
-    public function searchPlate(string $search_value, array $system_config, bool $include_specimens = true) {
-        $this->handleSearchPlate($search_value, $system_config, $include_specimens);
-    }
-
-    /**
-     * @param string $record_id
-     * @param array $system_config
-     * @return void
-     * @since 1.0.1
-     */
-    public function getSpecimen(string $record_id, array $system_config) {
-        $this->handleGetSpecimen($record_id, $system_config);
-    }
-
-    /**
-     * @param string $search_value
-     * @param array $system_config
-     * @return void
-     * @since 1.0.1
-     */
-    public function searchSpecimen(string $search_value, array $system_config) {
-        $this->handleSearchSpecimen($search_value, $system_config);
-    }
-
-    /**
-     * @param array $specimen
-     * @param array $system_config
-     * @since 1.0.1
-     */
-    public function saveSpecimen(array $specimen, array $system_config) {
-        $this->handleSaveSpecimen($specimen, $system_config);
-    }
-
-    public function deleteSpecimen(string $record_id) {
-        $this->handleDeleteSpecimen($record_id);
-    }
-
-    /**
-     * Initialize the main dashboard interface
+     * Unauthorized error
      *
-     * @param $system_config
+     * @param mixed $error Optional error details.  Will be JSON encoded.
      * @return void
-     * @since 1.0.1
      */
-    public function initializeBoxDashboard($system_config) {
-        $this->handleInitializeBoxDashboard($system_config);
-    }
-
-    /**
-     * Initialize the shipment dashboard interface
-     *
-     * @param $system_config
-     * @return void
-     * @since 1.0.1 Initial release.
-     */
-    public function initializeShipmentDashboard($system_config) {
-        $this->handleInitializeShipmentDashboard($system_config);
-    }
-
-    /**
-     * Initialize the reporting dashboard interface
-     *
-     * @param $system_config
-     * @return void
-     * @since 1.1.0 Initial release.
-     */
-    public function initializeReportDashboard($system_config) {
-        $this->handleInitializeReportDashboard($system_config);
-    }
-
-    /**
-     * Returns a list of shipments.
-     * @since 1.0.1
-     */
-    public function searchShipments() {
-        $this->handleSearchShipments();
-    }
-
-    /**
-     * @param $box_record_id
-     * @param $shipment_record_id
-     * @param $system_config
-     * @since 1.0.1 Initial release.
-     */
-    public function updateBoxShipment($box_record_id, $shipment_record_id, $system_config) {
-        $this->handleUpdateBoxShipment($box_record_id, $shipment_record_id, $system_config);
+    public function sendUnauthorized($error = "") : void
+    {
+        header('Content-Type: application/json; charset=UTF-8');
+        http_response_code(401);
+        exit(json_encode($this->escape($error)));
     }
 }
