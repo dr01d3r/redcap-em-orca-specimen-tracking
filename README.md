@@ -6,6 +6,58 @@ An easy-to-use custom interface for receiving, boxing, and shipping specimens.
 >
 > As a result of the major overhaul of functionality and the codebase, there was no easy way to support a seamless transition to v2 as an update to the original module.  With that, this build has been released as a completely separate External Module, and "v1" will become deprecated and no longer supported.
 
+## Migration Guide
+
+This is a basic migration guide, to help get you through the initial process of re-configuring an exist set of projects from v1.0.3 to v2.0.0.
+
+### Box Project Changes
+
+**Breaking Change:** New `[box_size]` field required.
+
+This field is required to define the size of the box.
+
+**Solution:** Data Import File
+
+If your project was set up for `8x12` boxes in the Control Center, you can create a simple Data Import file that's just `record` and `box_size`, and for each box record, a value of `8x12`.
+
+**Example:**
+
+```
+record_id,box_size
+1,8x12
+2,8x12
+3,8x12
+...
+999,8x12
+```
+
+### Specimen Project Changes
+
+**Breaking Change:** Required field name change from `[name]` to `[specimen_name]`.
+
+This change was necessary for us, but luckily it should be a pretty simple update.
+
+**Solution:** Data Export & Data Import!
+
+1. Create the new `[specimen_name]` field, or simply create a copy of your existing `[name]` field.
+1. Create a Data Export that contains just your `[record_id]` and `[name]` fields.
+1. Open and modify the export file, renaming the `name` header to `specimen_name` and adding `name` to the end.
+   - The goal is to tell REDCap to update the `[specimen_name]` field and blank out the `[name]` field, so you aren't left with orphan data. 
+   - It's best to do this step in Excel.  A text editor can get you there, but extra manual work might need to be done. 
+1. Import the file through the Data Import tool, ensuring you force blank values to overwrite.
+1. Once the data has been verified, you can delete the old `[name]` field.
+
+### Configuration Changes
+
+**Breaking Change:** Everything!
+
+That might sound rough, but the Dashboard Configuration interface hopefully does a good job of making the new configuration process a lot easier, once you get familiar with it.
+
+We had to get the configuration out of the Control Center, and the existing module config was not designed to cover such specific and complex needs, so we build a fully customized interface to replace it.  
+
+- Review the README and the build-in documentation within the configuration interface
+- Configure one interface (color-matched columns) at a time and test as you go
+
 ## Support & Feedback
 
 - If you identify any issues, please submit an issue on this GitHub repo or make a post on the forums and tag me (@chris.kadolph) and/or Leila Deering (@leila.deering).
@@ -83,7 +135,7 @@ closed, Closed
 - `[record_id]`
   - Leave this the default name when creating the project
 - `[shipment_name]` Text field
-- `[shipment_status]` Dropdown field
+- `[shipment_status]` Dropdown field
 ```
 incomplete, Incomplete 
 complete, Complete
