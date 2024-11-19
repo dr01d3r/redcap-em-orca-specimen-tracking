@@ -1,12 +1,8 @@
-# Orca Specimen Tracking 2 (REDCap External Module)
+# Orca Specimen Tracking (REDCap External Module)
 
 An easy-to-use custom interface for receiving, boxing, and shipping specimens.
 
-> **NOTE:** This is **Version 2** of the Orca Specimen Tracking module.
->
-> As a result of the major overhaul of functionality and the codebase, there was no easy way to support a seamless transition to v2 as an update to the original module.  With that, this build has been released as a completely separate External Module, and "v1" will become deprecated and no longer supported.
-
-## Migration Guide
+## Migration Guide (v1 to v2)
 
 This is a basic migration guide, to help get you through the initial process of re-configuring an exist set of projects from v1.0.3 to v2.0.0.
 
