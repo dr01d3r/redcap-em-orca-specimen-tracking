@@ -153,7 +153,7 @@ Push the plus (`+`) button to support additional sets of configurations.
 
 The module must be enabled in all three projects that were configured in the Control Center.
 
-In the left hand toolbar section **External Modules**, click **Manage**, then enable a module.  Look for **Orca Specimen Tracking 2** and push enable.  If you do not see the module in this list contact your REDCap Administrator.
+In the left hand toolbar section **External Modules**, click **Manage**, then enable a module.  Look for **Orca Specimen Tracking** and push enable.  If you do not see the module in this list contact your REDCap Administrator.
 
 In addition to the required fields for each project, you may add any additional fields that your study/collection process requires.
 
