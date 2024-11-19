@@ -1,3 +1,7 @@
+## 2.0.1
+- Fixed a bug that would prevent a specimen save if a specimen field was not enabled on the Specimen Entry Form, but was marked required or had Extras.
+- Fixed a bug that was preventing the deletion of specimens from a box.
+- Fixed a bug that was affecting the "Reset Specimen" if a field had the "Batch Mode" configuration enabled, even when batch mode was "Off" during specimen entry.
 ## 2.0.0
 - **BREAKING CHANGES**
 - This is a full rebuild that will cause breaking changes in existing projects if you update without proper preparation and configuration.
