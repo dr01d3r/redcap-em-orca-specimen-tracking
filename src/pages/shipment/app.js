@@ -1,27 +1,44 @@
-import Vue from 'vue';
-import App from './App.vue';
+// import 'primevue/resources/themes/bootstrap4-light-blue/theme.css'
+import "./style.scss";
 
-//  Axios
-import axios from 'axios'
-import VueAxios from 'vue-axios'
+import { createApp } from "vue";
+import App from "./App.vue";
 
-Vue.use(VueAxios, axios);
+import PrimeVue from "primevue/config";
+import Lara from '@primevue/themes/lara';
+import Toast from 'primevue/toast';
+import ToastService from 'primevue/toastservice';
+import ProgressSpinner from 'primevue/progressspinner';
+import BlockUI from 'primevue/blockui';
+import ConfirmationService from 'primevue/confirmationservice';
+import ConfirmDialog from 'primevue/confirmdialog';
+import Dialog from 'primevue/dialog';
+import DataTable from 'primevue/datatable';
+import Column from 'primevue/column';
+import IconField from 'primevue/iconfield';
+import InputIcon from 'primevue/inputicon';
+import InputText from 'primevue/inputtext';
 
-//  Bootstrap Vue
-import { BootstrapVue} from 'bootstrap-vue'
-import 'bootstrap-vue/dist/bootstrap-vue.css'
-Vue.use(BootstrapVue);
 
-// Composition API (for Vue v2)
-import VueCompositionAPI from '@vue/composition-api'
-Vue.use(VueCompositionAPI);
+const app = createApp(App);
 
-//  Mixin
-import mixin from '../../mixin'
-import '../../mixin.css'
-Vue.mixin(mixin);
+app.use(PrimeVue, {
+    theme: {
+        preset: Lara
+    }
+});
+app.use(ConfirmationService);
+app.use(ToastService);
 
-//  Create Vue Instance and mount our module page container
-new Vue({
-    render: h => h(App)
-}).$mount('#ORCA_SPECIMEN_TRACKING');
+app.component("Toast", Toast);
+app.component("BlockUI", BlockUI);
+app.component('ConfirmDialog', ConfirmDialog);
+app.component("ProgressSpinner", ProgressSpinner);
+app.component("DataTable", DataTable);
+app.component("Dialog", Dialog);
+app.component("Column", Column);
+app.component("IconField", IconField);
+app.component("InputIcon", InputIcon);
+app.component("InputText", InputText);
+
+app.mount("#ORCA_SPECIMEN_TRACKING");

@@ -6,83 +6,41 @@ use Exception;
 
 trait PlateUtils {
 
-    private $_allowed_box_name_parts = [
-        "box_type" => true,
-        "sample_type" => true,
-        "aliquot_number" => true,
-        "visit" => true,
-        "box_number" => true,
-        "fake_field" => true
-    ];
-
     /**
-     * @param $name
-     * @return int|string|null
-     * @throws Exception
-     */
-    function searchPlatesByName($name) {
-        if ($this->_plate_project === null) {
-            throw new Exception("Plate project context has not yet been established");
-        }
-        if (empty($name)) {
-            return null;
-        }
-        $result = \REDCap::getData([
-              "project_id" => $this->_plate_project->project_id,
-              "fields" => [ "record_id" ],
-              "filterLogic" => "[box_name] = '$name'"
-        ]);
-        if (empty($result) || count($result) == 0) {
-            return null;
-        } else if (count($result) > 1) {
-            throw new Exception("More than one plate matched the searched value: <strong>$name</strong>");
-        } else {
-            return key($result);
-        }
-    }
-
-    /**
-     * @param string $plate_id
-     * @param string $box_name_regex
+     * @param string $box_id
      * @return array
      * @throws Exception
      */
-    function getPlate(string $plate_id, string $box_name_regex)
+    function getBox(string $box_id)
     {
-        if (!is_numeric($plate_id)) return [];
-        return $this->getPlates($plate_id, $box_name_regex)[$plate_id];
+        if (!is_numeric($box_id)) return [];
+        return $this->getBoxes($box_id)[$box_id];
     }
 
     /**
-     * @param $plate_ids
-     * @param string $box_name_regex
+     * @param $box_ids
      * @return array
      * @throws Exception
      */
-    function getPlates($plate_ids, string $box_name_regex)
+    function getBoxes($box_ids): array
     {
-        if (empty($plate_ids)) return [];
-        if (!is_array($plate_ids)) {
-            $plate_ids = [ $plate_ids ];
+        if (!is_array($box_ids)) {
+            $box_ids = [ $box_ids ];
         }
-
-        if (count($plate_ids)) {
-            $results = [];
-            $project = $this->getPlateProject();
-            // get all plate info by record
+        $results = [];
+        $project = $this->getBoxProject();
+        // get all plate info by record
+        try {
             $records = \REDCap::getData([
                 "project_id" => $project->project_id,
-                "records" => $plate_ids
+                "records" => $box_ids
             ]);
             // process the records
             foreach ($records as $record_id => $record) {
-                $tmp = $record[$project->firstEventId];
-                $tmp["box_name_parsed"] = $this->parsePlateName($tmp["box_name"], $box_name_regex);
-                $results[$record_id] = $tmp;
+                $results[$record_id] = $record[$project->firstEventId];
             }
-            return $results;
-        }
-        return [];
+        } catch (Exception $ex) {}
+        return $results;
     }
 
     function parsePlateName($name, $regex) : ?array {
@@ -92,76 +50,73 @@ trait PlateUtils {
         $result = [];
         if (stripos($regex, '/') === false) $regex = "/$regex/";
         if (preg_match($regex, $name, $matches, PREG_UNMATCHED_AS_NULL)) {
-            $result = array_intersect_key($matches, $this->_allowed_box_name_parts);
+            $result = array_filter($matches, function ($v, $k) {
+                return !is_numeric($k);
+            }, ARRAY_FILTER_USE_BOTH);
         }
         return $result;
     }
 
     /* REQUEST HANDLERS */
 
-    function handleInitializeBoxDashboard($system_config) {
+    function handleInitializeBoxDashboard(): array
+    {
         $response = [
             "config" => [],
-            "messages" => [],
-            "warnings" => [],
             "errors" => []
         ];
-
         try {
-            // prep some helper info for validation \ plate visuals
-            $plate_size = $this->_config["plate_size_map"][$system_config["plate_size"]];
-
+            // get module config, if it exists
+            list($metadata, $state) = $this->getModuleConfig();
             // some config entries should be omitted or given default value based on box_type
             $response["config"] = [
-                "fields" => array_column($this->getPlateProject()->metadata, "element_label", "field_name"),
-                "box_type" => $this->getDictionaryValuesFor($this->getPlateProject()->project_id, "box_type"),
+                "general" => $state["general"],
+                "save-state" => $state["fields"] ?? [],
+                "fields" => $metadata ?? [],
+                "validation" => getValTypes(),
                 "alphabet" => range('A', 'Z'),
-                "plate_size" => $plate_size,
-                "use_temp_box_type" => $system_config["use_temp_box_type"],
-                "box_name_regex" => $system_config["box_name_regex"],
-                "specimen_name_regex" => $system_config["specimen_name_regex"],
-                "default_volume" => $system_config["default_volume"],
-                "collected_to_processed_minutes_max" => $system_config["collected_to_processed_minutes_max"],
-                "datetime_format" => $system_config["datetime_format"],
-                "shipment_dashboard_base_url" => $this->getUrl("views/shipment.php"),
-                "sample_type_units" => $this->_config["sample_type_units"],
-                "cdc_override_checked" => $system_config["cdc_override_checked"],
+                "shipment_dashboard_base_url" => $this->getUrl("views/shipment.php")
             ];
 
-            // temporary "00" box related configurations
-            if ($system_config["use_temp_box_type"] === true) {
-                $response["config"]["num_visits"] = $system_config["num_visits"];
-                $response["config"]["num_specimens"] = $system_config["num_specimens"];
-                // participant width & height for this box config
-                $pw = floor($plate_size["col"] / $system_config["num_visits"]);
-                $ph = floor($plate_size["row"] / $system_config["num_specimens"]);
-                $response["config"]["max_participants"] = $pw * $ph;
-            }
-
             // prep new box url
-            $new_box_id = \DataEntry::getAutoId($this->getPlateProject()->project_id);
-            $new_plate_url = APP_PATH_WEBROOT . "DataEntry/index.php?" . http_build_query([
-                    "pid" => $this->getPlateProject()->project_id,
+            $new_box_id = \DataEntry::getAutoId($this->getBoxProject()->project_id);
+            $new_box_url = APP_PATH_WEBROOT . "DataEntry/index.php?" . http_build_query([
+                    "pid" => $this->getBoxProject()->project_id,
                     "id" => $new_box_id,
-                    "event_id" => $this->getPlateProject()->firstEventId,
-                    "page" => $this->getPlateProject()->firstForm,
+                    "event_id" => $this->getBoxProject()->firstEventId,
+                    "page" => $this->getBoxProject()->firstForm,
                     "auto" => "1"
                 ]);
-            $response["config"]["new_plate_url"] = $new_plate_url;
+            $response["config"]["new_box_url"] = $new_box_url;
+            $this->addTime("initialization finished");
+        } catch (Exception $ex) {
+            $response["errors"][] = $ex->getMessage();
+        }
+        // send it back!
+        return $response;
+    }
 
+    function handleGetBox(array $system_config, $payload): array
+    {
+        $response = [
+            "box" => [],
+            "config" => [],
+            "errors" => []
+        ];
+        try {
             // get box context if specified
-            if (!empty($_GET["id"]) && is_numeric($_GET["id"])) {
-                // get the plate data
-                $plate = $this->getPlate($_GET["id"], $system_config["box_name_regex"]);
-                if (!empty($plate)) {
-                    $response["plate"] = $plate;
+            if (!empty($payload["id"]) && is_numeric($payload["id"])) {
+                // get the box data
+                $box = $this->getBox($payload["id"]);
+                if (!empty($box)) {
+                    $response["box"] = $box;
                     // get the specimen data
-                    $response["specimens"] = $this->getSpecimens($_GET["id"], $system_config["specimen_name_regex"]);
+                    $response["specimens"] = $this->getSpecimensForBox($payload["id"]);
                 }
                 // get record_home url
                 $box_record_home_url = APP_PATH_WEBROOT . "DataEntry/record_home.php?" . http_build_query([
-                        "pid" => $this->getPlateProject()->project_id,
-                        "id" => $_GET["id"]
+                        "pid" => $this->getBoxProject()->project_id,
+                        "id" => $payload["id"]
                     ]);
                 $response["config"]["box_record_home_url"] = $box_record_home_url;
             }
@@ -169,28 +124,95 @@ trait PlateUtils {
         } catch (Exception $ex) {
             $response["errors"][] = $ex->getMessage();
         }
-        // send it back!
-        $this->sendResponse($response);
+        return $response;
     }
 
-    function handleSearchPlate(string $search_value, array $system_config, bool $include_specimens = true) {
-        if (empty($search_value)) {
-            $this->sendError("No search value provided.");
-        }
+    function handleGetBoxList(array $system_config): array
+    {
+        $response = [
+            "boxes" => [],
+            "errors" => []
+        ];
         try {
-            $plate_id = $this->searchPlatesByName($search_value);
-            if (is_numeric($plate_id)) {
-                $plate = $this->getPlate($plate_id, $system_config["box_name_regex"]);
-                $response["plate"] = $plate;
-                if ($include_specimens === true) {
-                    // get the specimen data
-                    $response["specimens"] = $this->getSpecimens($plate_id, $system_config["specimen_name_regex"]);
-                }
-                $this->sendResponse($response);
-            }
-            $this->sendError("No box found by that name");
+            $response["boxes"] = $this->getBoxList();
         } catch (Exception $ex) {
-            $this->sendError($ex->getMessage());
+            $response["errors"][] = $ex->getMessage();
         }
+        // send it back!
+        return $response;
+    }
+    function handleSearchBoxList(array $system_config, array $payload): array
+    {
+        $response = [
+            "search" => $payload["search"],
+            "boxes" => [],
+            "errors" => []
+        ];
+        try {
+            $response["boxes"] = $this->getBoxList(false, $payload["search"]);
+        } catch (Exception $ex) {
+            $response["errors"][] = $ex->getMessage();
+        }
+        // send it back!
+        return $response;
+    }
+
+    /**
+     * @throws Exception
+     */
+    function getBoxList(bool $exclude_closed = true, $search = null): array
+    {
+        $boxes = [];
+        // get the data_table context
+        $dt_d = $this->getBoxProject()->project["data_table"];
+        $st_s = $this->getSpecimenProject()->project["data_table"];
+        // define some conditional logic
+        $sql_joins_1 = "";
+        $sql_joins_2 = "";
+        $sql_filter_1 = "";
+        $sql_filter_2 = "";
+        if ($exclude_closed) {
+            // box project join for box status
+            $sql_joins_1 = "JOIN {$dt_d} d2 ON d1.project_id = d2.project_id AND d1.record = d2.record AND d2.field_name = 'box_status'";
+            // where condition for box status
+            $sql_filter_1 = "AND d2.value = 'available'";
+        }
+        if (!empty($search)) {
+            // include the specimen project joins
+            $sql_joins_2 = "LEFT JOIN {$st_s} s1 ON s1.project_id = ? AND s1.field_name = 'box_record_id' AND d1.record = s1.value
+LEFT JOIN {$st_s} s2 ON s1.project_id = s2.project_id AND s1.record = s2.record AND s2.field_name = 'specimen_name'";
+            // where condition for box name and specimen name search
+            $sql_filter_2 = "AND (d1.value LIKE ? OR s2.value LIKE ?)";
+            $sql_params = [
+                $this->getSpecimenProject()->project_id,
+                $this->getBoxProject()->project_id,
+                "%$search%",
+                "%$search%"
+            ];
+        } else {
+            $sql_params = [
+                $this->getBoxProject()->project_id,
+            ];
+        }
+        // execute the query
+        $sql_result = $this->query("SELECT d1.record
+FROM {$dt_d} d1
+{$sql_joins_1}
+{$sql_joins_2}
+WHERE d1.project_id = ?
+AND d1.field_name = 'box_name'
+{$sql_filter_1}
+{$sql_filter_2}
+GROUP BY d1.record", $sql_params);
+        // use the record_ids to grab all the box data
+        $records = [];
+        while ($r = db_fetch_assoc($sql_result)) {
+            $records[] = $r["record"];
+        }
+        if (empty($search) || count($records) > 0) {
+            $boxes = array_values($this->getBoxes($records));
+        }
+        // send it back!
+        return $boxes;
     }
 }

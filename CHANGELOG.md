@@ -1,3 +1,8 @@
+## 2.0.0
+- **BREAKING CHANGES**
+- This is a full rebuild that will cause breaking changes in existing projects if you update without proper preparation and configuration.
+- Review the new documentation, and ideally get familiar with and test it in a dev environment before going to production. 
+- There are too many changes to list here - review the README to learn more!
 ## 1.0.3
 - SQL queries updated to support new data tables behavior (REDCap v14.0)
 - Slightly changed validation behavior to cooperate with intended field navigation

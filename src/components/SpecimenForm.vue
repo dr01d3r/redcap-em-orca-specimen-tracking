@@ -1,19 +1,650 @@
-<template>
-    <b-overlay variant="light"
-               blur="50px"
-               spinner-variant="dark"
-               spinner-small
-               opacity="0.95"
-               :show="isOverlayed"
-               rounded="sm">
-        <template #overlay>
-            <loader />
-        </template>
+<script setup>
+import {
+    ref,
+    inject,
+    useTemplateRef,
+    computed,
+    watch,
+    watchEffect,
+    nextTick,
+    onMounted,
+    Teleport,
+    getCurrentInstance
+} from 'vue';
+import { isEmpty, isNotEmpty } from '@primeuix/utils/object';
+import {useToast} from 'primevue/usetoast';
+import {useConfirm} from "primevue/useconfirm";
+import ModuleUtils from '../ModuleUtils';
+import { DateTime, Interval } from 'luxon';
 
-        <template v-if="debugMsg != null">
-            <pre class="well">{{ debugOutput }}</pre>
-        </template>
-        <template v-if="errors.length">
+const uid = getCurrentInstance().uid;
+
+const toast = useToast();
+const showToast = (type, summary, detail, life = 3000) => {
+    toast.add({
+        severity: type,
+        summary: summary,
+        detail: detail,
+        life: life
+    });
+};
+
+const confirm = useConfirm();
+const confirmMove = (data) => {
+    confirm.require({
+        group: `move-${uid}`,
+        message: data,
+        header: data.specimen.specimen_name,
+        accept: () => {
+            // move specimen
+            saveSpecimen(data.specimen);
+        },
+        reject: () => {
+            resetSpecimen();
+        },
+        onShow: () => {
+            nextTick(() => moveCancelBtn.value.focus());
+        }
+    });
+};
+const confirmWarnings = (data) => {
+    confirm.require({
+        group: `warnings-${uid}`,
+        message: data,
+        header: 'Save Acknowledgement',
+        accept: () => {
+            // append warnings to target field, if configured
+            if (isNotEmpty(warnings.value) && isNotEmpty(config['general']['warning_ack_field'])) {
+                let warningStr = Object.values(warnings.value).map((x) =>
+                    ModuleUtils.warningAcknowledgementMessagePreview(userid.value, x)
+                ).join('\r\n');
+                if (isEmpty(specimen.value[config['general']['warning_ack_field']])) {
+                    specimen.value[config['general']['warning_ack_field']] = warningStr;
+                } else {
+                    specimen.value[config['general']['warning_ack_field']] += `\r\n${warningStr}`;
+                }
+            }
+            // save the specimen!
+            saveSpecimen(specimen.value);
+        },
+        reject: () => {
+
+        },
+        onShow: () => {
+            nextTick(() => confirmWarningCancelBtn.value.focus());
+        }
+    });
+};
+
+// Vuelidate
+import useVuelidate from '@vuelidate/core'
+import {
+    helpers,
+    required
+} from '@vuelidate/validators'
+
+// DEFAULT DATA STATE
+const defaultSpecimenState = () => {
+    return {
+        record_id: null,
+        specimen_name: null,
+        box_position: null,
+        box_record_id: null
+    }
+}
+
+// VUELIDATE
+const noFutureDateTime = (value, vm, model) => {
+    return isEmpty(value) || DateTime.fromFormat(value, ModuleUtils.luxonDateTimeFormatFrom) <= DateTime.now();
+};
+const sameAsConfirm = (field_name) => helpers.withParams(
+    { type: 'sameAsConfirm', value: field_name },
+    (value, vm, model) => {
+        return value === vm[`confirm_${field_name}`];
+    }
+);
+
+const afterDateMinMax = (field_name, extras) => helpers.withParams({}, (value, vm, model) => {
+        if (isNotEmpty(value) && isNotEmpty(extras) && isNotEmpty(specimen.value[extras['target']])) {
+            let d1 = DateTime.fromFormat(value, ModuleUtils.luxonDateTimeFormatFrom);
+            let d2 = DateTime.fromFormat(specimen.value[extras['target']], ModuleUtils.luxonDateTimeFormatFrom);
+            // calculate the diff with min/max, if set
+            const diff = Interval.fromDateTimes(d2, d1).length("minutes");
+            // minimum
+            let minCheckPassed = (isEmpty(extras['minimum']) || diff >= parseInt(extras['minimum']));
+            // maximum
+            let maxCheckPassed = (isEmpty(extras['maximum']) || diff <= parseInt(extras['maximum']));
+            // if the min/max should only be warnings, update the warnings object
+            if (extras['warningOnly'] === true) {
+                let warningName = `${field_name}.afterDateTime`;
+                // update min/max warnings
+                if (minCheckPassed && maxCheckPassed) {
+                    delete warnings.value[warningName];
+                } else {
+                    warnings.value[warningName] = ModuleUtils.afterDateTimeErrorMessage(
+                        fields.value['specimen'][field_name]['field_label'],
+                        fields.value['specimen'][extras['target']]['field_label'],
+                        extras);
+                }
+                return true;
+            } else {
+                return d1 >= d2 && minCheckPassed && maxCheckPassed;
+            }
+        }
+        return true;
+    }
+);
+const afterDateTime = (extras) => helpers.withParams({}, (value, vm, model) => {
+        if (isNotEmpty(value) && isNotEmpty(extras) && isNotEmpty(specimen.value[extras['target']])) {
+            let d1 = DateTime.fromFormat(value, ModuleUtils.luxonDateTimeFormatFrom);
+            let d2 = DateTime.fromFormat(specimen.value[extras['target']], ModuleUtils.luxonDateTimeFormatFrom);
+            return d1 >= d2;
+        }
+        return true;
+    }
+);
+
+const specimenMatchesBox = (value, vm, model) => {
+    let specimen_match = value.match(model.config['general']['specimen_name_regex']);
+    let box_match = model.box_info['box_name'].match(model.config['general']['box_name_regex']);
+    // ignore if it's not a match - either empty or base regex validation failed
+    if (specimen_match === null || box_match === null) return true;
+    let is_valid = true;
+    for (const [key, value] of Object.entries(box_match.groups)) {
+        let a = specimen_match.groups[key];
+        let b = box_match.groups[key];
+        is_valid = is_valid && (isEmpty(a) || a === b);
+    }
+    return is_valid;
+};
+
+const userid = ref(OrcaSpecimenTracking().userid);
+
+const dt = ref();
+const specimen = ref(defaultSpecimenState());
+const fields = ref({});
+
+const debug = ref();
+const errors = ref([]);
+const warnings = ref({});
+const isLoading = ref(false);
+
+const batchEnabled = ref(false);
+
+// INPUT REFS
+const inputRefMap = ref();
+const inputRefs = useTemplateRef('specimen-input');
+const specimen_name_input = ref();
+const moveCancelBtn = ref();
+const confirmWarningCancelBtn = ref();
+
+// COMPUTED
+const batchMode = computed(() => {
+    return batchEnabled.value ? 'On' : 'Off';
+});
+
+// VUELIDATE
+const rules = computed(() => {
+    const myRules = {};
+    if (isNotEmpty(fields.value)) {
+        let k = null;
+        for (k in fields.value['specimen']) {
+            // validation
+            let sr = {};
+            let fv = fields.value['specimen'][k];
+            // specialized rules for specific fields
+            if (k === 'specimen_name') {
+                sr = {
+                    required: helpers.withMessage(`<strong>${fv['field_label']}</strong> is required`, required),
+                    regexMatch: helpers.withMessage('Value provided does not match the required nomenclature!',
+                        (value) => isEmpty(value) || value.match(config['general']['specimen_name_regex'])
+                    ),
+                    specimenMatchesBox: helpers.withMessage('Box nomenclature mismatch - one or more parts do not align with the current box', specimenMatchesBox)
+                };
+            } else {
+                // default rule behaviors
+                if (fv['required'] === true) {
+                    sr.required = helpers.withMessage(`<strong>${fv['field_label']}</strong> is required`, required);
+                }
+                // leverage built-in redcap validation
+                // be sure to trim the leading/trailing slashes, otherwise the match will fail
+                if (isNotEmpty(fv['validation']) && config.validation[fv['validation']['type']]) {
+                    // get the validation info
+                    let val_info = config.validation[fv['validation']['type']];
+                    // normalize datetime due to the component being used
+                    if (fv['field_type'] === 'datetime') val_info = config.validation['datetime_ymd'];
+                    // apply validation to the rules
+                    sr[fv['validation']['type']] = helpers.withMessage(val_info['validation_label'],
+                        (value) => isEmpty(value) || value.match(val_info['regex_js'].replace(/^\/|\/$/g, ''))
+                    );
+                }
+                // time to handle the extras config
+                if (isNotEmpty(config['save-state']['specimen'][k]['extras'])) {
+                    for (let x in config['save-state']['specimen'][k]['extras']) {
+                        let extras = config['save-state']['specimen'][k]['extras'][x];
+                        // skip if not enabled
+                        if (!extras['enabled']) continue;
+                        // noFuture
+                        if (x === 'noFuture') {
+                            sr.noFuture = helpers.withMessage(`<strong>${fv['field_label']}</strong> cannot be in the future!`, noFutureDateTime);
+                        }
+                        // afterDate
+                        if (x === 'afterDate' && isNotEmpty(extras['target'])) {
+                            // errors vs warningOnly is handled within the custom validator
+                            sr.afterDateTime = helpers.withMessage(ModuleUtils.afterDateTimeErrorMessage(fv['field_label'], fields.value['specimen'][extras['target']]['field_label'], null), afterDateTime(extras));
+                            sr.afterDateMinMax = helpers.withMessage(ModuleUtils.afterDateTimeErrorMessage(fv['field_label'], fields.value['specimen'][extras['target']]['field_label'], extras), afterDateMinMax(k, extras));
+                        }
+                        // confirm
+                        if (x === 'confirm') {
+                            // have the sameAs reference the confirm pseudo field
+                            sr.sameAsConfirm = helpers.withMessage(`<strong>${fv['field_label']}</strong> double entry confirmation mismatch!`, sameAsConfirm(k));
+                        }
+                    }
+                }
+            }
+            if (isNotEmpty(sr)) {
+                myRules[k] = sr;
+            }
+        }
+    }
+    return myRules;
+});
+// server-side validation support
+const $vuelidateExternalResults = ref({
+    specimen_name: []
+});
+
+const v$ = useVuelidate(rules, specimen, {
+    $lazy: true,
+    $autoDirty: true,
+    $externalResults: $vuelidateExternalResults
+});
+
+// WATCHES
+watch(() => config, async () => {
+    initialize();
+});
+watchEffect(() => {
+    if (inputRefs.value) {
+        // build the input ref map
+        let map = {};
+        for (const i in inputRefs.value) {
+            map[inputRefs.value[i].id] = i;
+        }
+        inputRefMap.value = Object.assign({}, map);
+    }
+})
+
+
+// METHODS
+const initSpecimen = (f) => {
+    // THIS SHOULD ONLY OCCUR ONCE, DURING MOUNT!
+    let o = {};
+    let d = {};
+    if (isNotEmpty(f)) {
+        for (let k in f['specimen']) {
+            let fv = f['specimen'][k];
+            // special handling for datetime, due to component datetime format
+            // Component -> 2024-10-01T15:00
+            // REDCap    -> 2024-10-01 15:00
+            if (fv['field_type'] === 'datetime') {
+                // data state
+                d[k] = null;
+                o[k] = computed({
+                    get() {
+                        if (isEmpty(dt.value[k])) return null;
+                        return dt.value[k].replace('T', ' ');
+                    },
+                    set(_) {
+                        dt.value[k] = _?.replace(' ', 'T') ?? null;
+                    }
+                });
+            } else {
+                // data state
+                o[k] = null;
+            }
+        }
+    }
+    dt.value = Object.assign({}, d);
+    specimen.value = Object.assign(defaultSpecimenState(), o);
+};
+
+const searchSpecimenCallback = (data) => {
+    if (data.match_type === 'exact') {
+        if (data.specimen.box_record_id === box_record_id &&
+            data.specimen.box_position === box_position.position) {
+            Object.assign($vuelidateExternalResults.value, {
+                specimen_name: ['Cannot process specimen as it already exists on this box!']
+            });
+            nextTick(() => {
+                v$.value.specimen_name.$validate();
+            });
+        } else if (data.box.box_status === 'closed') {
+            Object.assign($vuelidateExternalResults.value, {
+                specimen_name: ['Cannot process specimen because it exists on a closed box!']
+            });
+            this.$nextTick(() => {
+                v$.value.specimen_name.$validate();
+            });
+        } else {
+            // this is a move
+            confirmMove(data);
+        }
+    } else if (data.match_type === 'partial') {
+        // partial match is only possible if the feature is enabled and properly configured
+        // so we should be able to assume this configuration has data
+        // local var for specimen_name extras for easy access
+        const snx = config['save-state']['specimen']['specimen_name']['extras'];
+        if (isNotEmpty(snx['matchPrefill'])) {
+            for (const i in snx['matchPrefill']['fields']) {
+                let k = snx['matchPrefill']['fields'][i];
+                if (specimen.value.hasOwnProperty(k)) {
+                    // ignore fields that aren't selected in the config
+                    if (!config['save-state']['specimen'][k]['specimen-entry-form']) continue;
+                    // if a structured field, ensure the value is valid
+                    if (isNotEmpty(fields.value['specimen'][k].choices) && !fields.value['specimen'][k].choices.hasOwnProperty(data.specimen[k])) {
+                        specimen.value[k] = '';
+                    } else {
+                        specimen.value[k] = data.specimen[k];
+                        // account for a field configured to use 'confirm'
+                        if (isNotEmpty(config['save-state']['specimen'][k]['extras']) &&
+                            isNotEmpty(config['save-state']['specimen'][k]['extras']['confirm']) &&
+                            config['save-state']['specimen'][k]['extras']['confirm']['enabled']) {
+                            specimen.value[`confirm_${k}`] = data.specimen[k];
+                        }
+                    }
+                }
+            }
+            showToast('success', 'Partial Match Found', `Pre-filled based on <strong class="font-monospace">[<span class="text-danger">${data.specimen['specimen_name']}</span>]</strong>`, 5000);
+        }
+        // move focus
+        focusNext('specimen_name');
+    } else {
+        // not a match, so just process normally
+        // use basic matching parsed values to pre-fill specimen
+        if (data.parsed_value) {
+            for (let k in data.parsed_value) {
+                // ensure we have a known property to set
+                if (specimen.value.hasOwnProperty(k)) {
+                    // ignore fields that aren't selected in the config
+                    if (!config['save-state']['specimen'][k]['specimen-entry-form']) continue;
+                    // if a structured field, ensure the value is valid
+                    if (isNotEmpty(fields.value['specimen'][k].choices) && !fields.value['specimen'][k].choices.hasOwnProperty(data.parsed_value[k])) {
+                        specimen.value[k] = '';
+                    } else {
+                        specimen.value[k] = data.parsed_value[k];
+                    }
+                }
+            }
+        }
+        showToast('secondary', 'No Match Found', `No match found for <strong class="font-monospace">[<span class="text-danger">${data.search_value}</span>]</strong>`);
+        // move focus
+        focusNext('specimen_name');
+    }
+    if (isNotEmpty(data.warnings)) {
+        showToast('warn', 'Warnings Occurred During Search', `<ul class="mb-0"><li>${data.warnings.join('</li><li>')}</li></ul>`, 10000);
+    }
+};
+
+const searchSpecimen = async (search_value) => {
+    isLoading.value = true;
+    // TODO reset specimen??
+    // this.resetSpecimen(true, true);
+    OrcaSpecimenTracking().jsmo.ajax('search-specimen', {
+        search_value: search_value
+    })
+        .then(response => {
+            // look for possible errors during save result
+            if (isNotEmpty(response.errors)) {
+                if (Array.isArray(response.errors)) {
+                    errors.value.push(...response.errors);
+                } else {
+                    errors.value.push(response.errors);
+                }
+            } else {
+                // success
+                searchSpecimenCallback(response);
+            }
+        })
+        .catch(err => {
+            debug.value = err;
+        })
+        .finally(() => {
+            isLoading.value = false;
+        });
+};
+
+const specimenScanned = () => {
+    if (v$.value.specimen_name.$dirty && !v$.value.specimen_name.$error) {
+        // ensure there's a valid position available
+        let response = getPositionForSpecimen(specimen.value.specimen_name);
+        if (response.result === true) {
+            specimen.value.box_position = response.position;
+            searchSpecimen(specimen.value.specimen_name);
+        } else {
+            Object.assign($vuelidateExternalResults.value, response.errors.specimen);
+        }
+    }
+};
+
+const saveSpecimen = (s) => {
+    // set overlay
+    isLoading.value = true;
+    // submit requests
+    // ensure certain fields are set when not in 'edit' mode
+    if (mode === 'new') {
+        s.box_record_id = box_record_id;
+        s.box_position = box_position['position'];
+    }
+    OrcaSpecimenTracking().jsmo.ajax('save-specimen', {
+        specimen: s
+    })
+        .then(response => {
+            // look for possible errors during save result
+            if (isNotEmpty(response.errors)) {
+                if (Array.isArray(response.errors)) {
+                    errors.value.push(...response.errors);
+                } else {
+                    errors.value.push(response.errors);
+                }
+            } else {
+                // success
+                if (response) {
+                    // push back to root so it can be added to specimen list
+                    emit('specimenSaved', response);
+                    resetSpecimen(batchEnabled.value);
+                }
+            }
+        })
+        .catch(err => {
+            debug.value = err;
+        })
+        .finally(() => {
+            isLoading.value = false;
+        });
+};
+
+const trySaveSpecimen = async () => {
+    let isValid = await v$.value.$validate();
+    if (isValid) {
+        if (isNotEmpty(warnings.value)) {
+            // prompt for warnings before save
+            confirmWarnings(warnings.value);
+        } else {
+            // save it!
+            saveSpecimen(specimen.value);
+        }
+    }
+};
+
+const resetFocus = () => {
+    if (mode === 'new') {
+        specimen_name_input.value.focus();
+    }
+}
+
+const focusNext = (current) => {
+    // exit early if there are no fields to work with
+    if (!inputRefs.value) return;
+    // initialize next to -1, so prevent action if we don't find a valid target
+    let next = -1;
+    // if field name is mapped, get its index
+    if (current === 'specimen_name') {
+        // specimen_name is outside the refs so next field is at index 0
+        next = 0;
+    } else if (isNotEmpty(inputRefMap.value[current])) {
+        next = parseInt(inputRefMap.value[current]) + 1;
+    }
+    // move focus to the next field if it's not the last
+    if (isNotEmpty(inputRefs.value[next])) {
+        nextTick(() => inputRefs.value[next].focus());
+    }
+} ;
+
+const resetSpecimen = (preserveBatch = false) => {
+    // clear any warnings before field loop
+    warnings.value = {};
+    // reset each property on the specimen
+    for (let k in specimen.value) {
+        // handle exclusions
+        if (mode === 'edit' && [
+            'specimen_name',
+            'record_id',
+            'box_position',
+            'box_record_id'
+        ].includes(k)) continue;
+        // pseudo fields may exist, and if so, ignore them directly
+        //   they will be handled indirectly through other true fields
+        if (isEmpty(config['save-state']['specimen'][k])) continue;
+        // ensure i'm not wiping out fields that cannot be seen/edited
+        if (!config['save-state']['specimen'][k]['specimen-entry-form']) continue;
+        // preserve batch fields, if necessary
+        if (preserveBatch && config['save-state']['specimen'][k]['batch-mode']) continue;
+        // look for fields with a configured default value
+        if (isNotEmpty(config['save-state']['specimen'][k]['field-default'])) {
+            specimen.value[k] = config['save-state']['specimen'][k]['field-default'];
+        } else {
+            // if we get this far, reset the value
+            specimen.value[k] = null;
+            // wipe out a pseudo field if exists
+            if (isNotEmpty(config['save-state']['specimen'][k]['extras']) &&
+                isNotEmpty(config['save-state']['specimen'][k]['extras']['confirm']) &&
+                config['save-state']['specimen'][k]['extras']['confirm']['enabled']) {
+                specimen.value[`confirm_${k}`] = null;
+            }
+        }
+    }
+    v$.value.$reset();
+    nextTick(() => {
+        resetFocus();
+    });
+};
+const loadSpecimen = (id) => {
+    // set overlay
+    isLoading.value = true;
+    // submit requests
+    OrcaSpecimenTracking().jsmo.ajax('get-specimen', {
+        specimen_record_id: id
+    })
+    .then(response => {
+        // look for possible errors during save result
+        if (isNotEmpty(response.errors)) {
+            if (Array.isArray(response.errors)) {
+                errors.value.push(...response.errors);
+            } else {
+                errors.value.push(response.errors);
+            }
+        } else {
+            // success
+            specimen.value = Object.assign(specimen.value, (response.specimen ?? {}));
+            // sync up fields flagged for 'confirm' validation
+            if (mode === 'edit') {
+                for (let k in specimen.value) {
+                    if (isNotEmpty(config['save-state']['specimen'][k]) &&
+                        isNotEmpty(config['save-state']['specimen'][k]['extras']) &&
+                        isNotEmpty(config['save-state']['specimen'][k]['extras']['confirm']) &&
+                        config['save-state']['specimen'][k]['extras']['confirm']['enabled']) {
+                        specimen.value[`confirm_${k}`] = specimen.value[k];
+                    }
+                }
+            }
+        }
+    })
+    .catch(err => {
+        debug.value = err;
+    })
+    .finally(() => {
+        isLoading.value = false;
+    });
+}
+
+// PROPS | EXPOSE | EMITS | INJECTS
+const {
+    resetDisable,
+    batchDisable,
+    mode,
+    box_record_id,
+    box_position,
+    box_info,
+    config
+} = defineProps({
+    resetDisable: {
+        type: Boolean,
+        required: false
+    },
+    batchDisable: {
+        type: Boolean,
+        required: false
+    },
+    mode: {
+        type: String,
+        required: true
+    },
+    box_record_id: {
+        type: String,
+        required: true
+    },
+    box_position: {
+        type: String,
+        required: false
+    },
+    box_info: {
+        type: Object,
+        required: true
+    },
+    config: {
+        type: Object,
+        required: true
+    }
+});
+
+defineExpose({
+    resetFocus,
+    resetSpecimen,
+    loadSpecimen
+});
+
+const emit = defineEmits([
+    'specimenSaved'
+]);
+
+const getPositionForSpecimen = inject('getPositionForSpecimen', (name) => {});
+
+const initialize = () => {
+    initSpecimen(config.fields);
+    fields.value = config.fields ?? {};
+    // reset the specimen, which initializes the focus
+    nextTick(() => resetSpecimen());
+};
+
+onMounted(() => {
+    initialize();
+});
+</script>
+
+<template>
+    <BlockUI :blocked="isLoading">
+        <template v-if="isNotEmpty(errors)">
             <div class="alert alert-danger p-4">
                 <h1 class="display-4">Critical Errors Exist!</h1>
                 <p class="lead mb-0">This dashboard has been disabled until all critical errors have been resolved.</p>
@@ -28,1362 +659,204 @@
 
         <!-- MAIN CONTENT AREA -->
         <div class="row">
-            <!-- specimen-id display -->
-            <div class="col mb-2">
-                <label class="form-label">Specimen ID</label>
+            <!-- specimen - name display -->
+            <div class="col-12 mb-2">
+                <label class="form-label">{{ config['fields']['specimen']['specimen_name']['field_label'] }}<span v-if="mode!=='edit'" class="text-danger">*</span></label>
                 <template v-if="mode==='edit'">
-                    <b-form-input
-                            ref="specimen_id_input"
-                            readonly="readonly"
-                            v-model="specimen.name"
-                            :state="v$.specimen.name.$error ? false : null"
-                    ></b-form-input>
+                    <input type="text" class="form-control bg-dark-subtle text-secondary" ref="specimen_name_input" v-model="specimen.specimen_name" disabled="disabled" />
                 </template>
                 <template v-else>
-                    <b-form-input
-                            ref="specimen_id_input"
-                            autocomplete="off"
-                            @keydown.enter="focusNext"
-                            @keyup.enter="focusNext"
-                            @blur="specimenScanned"
-                            v-model="specimen.name"
-                            :state="v$.specimen.name.$error ? false : null"
-                    ></b-form-input>
+                    <input type="text" class="form-control" ref="specimen_name_input" v-model="specimen.specimen_name" autocomplete="off"
+                           @keydown.tab="specimenScanned" @keyup.enter="specimenScanned"
+                    />
+                    <div class="alert alert-danger mt-1 mb-0 px-3 py-2" v-if="v$.specimen_name && v$.specimen_name.$error">
+                        <strong>Validation Error:</strong>
+                        <ul class="mb-0">
+                            <li v-for="error of v$.specimen_name.$errors" :key="error.$uid" v-html="error.$message"></li>
+                        </ul>
+                    </div>
                 </template>
-                <b-alert variant="danger" class="mt-1 mb-0 px-3 py-2"
-                         v-if="v$.specimen.name.$error"
-                         show
-                >
-                    <strong>Validation Error:</strong>
-                    <ul class="mb-0">
-                        <li v-for="error of v$.specimen.name.$errors" :key="error.$uid">{{ error.$message }}</li>
-                    </ul>
-                </b-alert>
             </div>
-            <!-- csid -->
-            <div class="col-3 mb-2">
-                <label class="form-label">
-                    CSID
-                    <template v-if="config.cdc_override_checked === true">
-                        <i class="fas fa-info-circle" v-b-popover.hover="'This field is OPTIONAL due to study study configuration.'"></i>
-                    </template>
-                    <template v-else>
-                        &nbsp;(
-                        <input type="checkbox" v-model="csidOverride" tabindex="-1" />
-                        <i class="fas fa-info-circle" v-b-popover.hover="'Ignore required validation.'"></i>
-                        )
-                    </template>
-                </label>
-                <b-form-input
-                        ref="csid_input"
-                        autocomplete="off"
-                        @keydown.enter="focusNext"
-                        @keyup.enter="focusNext"
-                        @blur="csidScanned"
-                        v-model="specimen.csid"
-                        :state="v$.specimen.csid.$error ? false : null"
-                ></b-form-input>
-                <b-alert variant="danger" class="mt-1 mb-0 px-3 py-2"
-                         v-if="v$.specimen.csid.$error"
-                         show
-                >
-                    <strong>Validation Error:</strong>
-                    <ul class="mb-0">
-                        <li v-for="error of v$.specimen.csid.$errors" :key="error.$uid">{{ error.$message }}</li>
-                    </ul>
-                </b-alert>
-            </div>
-            <!-- cuid -->
-            <div class="col-3 mb-2">
-                <label class="form-label">
-                    CUID
-                    <template v-if="config.cdc_override_checked === true">
-                        <i class="fas fa-info-circle" v-b-popover.hover="'This field is OPTIONAL due to study study configuration.'"></i>
-                    </template>
-                    <template v-else>
-                        &nbsp;(
-                        <input type="checkbox" v-model="cuidOverride" tabindex="-1" />
-                        <i class="fas fa-info-circle" v-b-popover.hover="'Ignore required validation.'"></i>
-                        )
-                    </template>
-                </label>
-                <b-form-input
-                        ref="cuid_input"
-                        autocomplete="off"
-                        @keydown.enter="focusNext"
-                        @keyup.enter="focusNext"
-                        @blur="cuidScanned"
-                        v-model="specimen.cuid"
-                        :state="v$.specimen.cuid.$error ? false : null"
-                ></b-form-input>
-                <b-alert variant="danger" class="mt-1 mb-0 px-3 py-2"
-                         v-if="v$.specimen.cuid.$error"
-                         show
-                >
-                    <strong>Validation Error:</strong>
-                    <ul class="mb-0">
-                        <li v-for="error of v$.specimen.cuid.$errors" :key="error.$uid">{{ error.$message }}</li>
-                    </ul>
-                </b-alert>
-            </div>
-        </div>
-        <div class="row">
-            <!-- specimen.date_time_collected -->
-            <div class="col-9 mb-2">
-                <label class="form-label">Collected Date</label>
-                <b-form-datepicker
-                        ref="date_collected"
-                        v-model="specimen.date_collected"
-                        :state="v$.specimen.date_collected.$error ? false : null"
-                        @input="v$.specimen.time_collected.$touch()"
-                ></b-form-datepicker>
-            </div>
-            <div class="col-3 mb-2">
-                <label class="form-label">Collected Time</label>
-                <b-form-input
-                        ref="time_collected"
-                        placeholder="i.e. 1600 or 16:00"
-                        autocomplete="off"
-                        v-model="specimen.time_collected"
-                        :state="v$.specimen.time_collected.$error ? false : null"
-                        @input="v$.specimen.date_collected.$touch()"
-                        @keyup.enter="focusNext"
-                        @keydown.enter="focusNext"
-                ></b-form-input>
-            </div>
-            <div class="col-12" v-if="v$.specimen.date_collected.$error || v$.specimen.time_collected.$error">
-                <b-alert variant="danger" class="mt-1 mb-0" show>
-                    <strong>Validation Error:</strong>
-                    <ul class="mb-0">
-                        <li v-for="error of v$.specimen.date_collected.$errors" :key="error.$uid">{{ error.$message }}</li>
-                        <li v-for="error of v$.specimen.time_collected.$errors" :key="error.$uid">{{ error.$message }}</li>
-                    </ul>
-                </b-alert>
-            </div>
-        </div>
-        <div class="row">
-            <!-- specimen mhn fields -->
-            <div class="col-6 mb-2">
-                <div class="row">
-                    <div class="col-6">
-                        <label class="form-label">MHN</label>
-                        <b-form-input
-                                ref="mhn_input"
-                                autocomplete="off"
-                                v-model="specimen.mhn"
-                                :state="v$.specimen.mhn_verify.$error ? false : null"
-                                @keyup.enter="focusNext"
-                                @keydown.enter="focusNext"
-                                @input="v$.specimen.mhn_verify.$touch()"
-                        ></b-form-input>
-                    </div>
-                    <div class="col-6">
-                        <label class="form-label">MHN (verify)</label>
-                        <b-form-input
-                                ref="mhn_verify"
-                                autocomplete="off"
-                                v-model="specimen.mhn_verify"
-                                :state="v$.specimen.mhn_verify.$error ? false : null"
-                                @keyup.enter="focusNext"
-                                @keydown.enter="focusNext"
-
-                        ></b-form-input>
-                    </div>
-                    <div class="col-12" v-if="v$.specimen.mhn_verify.$error">
-                        <b-alert variant="danger" class="mt-1 mb-0 px-3 py-2"
-                                 show
-                        >
+            <!-- FIELD LOOP - FIELDS -->
+            <template v-for="(fv, fk) in fields['specimen']">
+                <template v-if="config['save-state']['specimen'][fk]['specimen-entry-form'] && !fv['config']['specimen-entry-form']['required']">
+                    <!-- {{ fk }} -->
+                    <div class="pt-1 pb-2 rounded-0" :class="[
+                        config['save-state']['specimen'][fk]['batch-mode'] && batchEnabled ? 'batch-mode' : '',
+                        fv['field_type']==='notes' ? 'col-12 col-xl-6' : 'col-6'
+                    ]">
+                        <div class="row g-0" :id="`${fk}-labels`">
+                            <div class="col">
+                                <label class="form-label mb-1">{{ fv['field_label'] }}<span v-if="fv['required']" class="text-danger">*</span></label>
+                            </div>
+                        </div>
+                        <template v-if="fv['field_type']==='text'">
+                            <div class="input-group">
+                                <input type="text" class="form-control" :id="fk" ref="specimen-input" v-model="specimen[fk]" autocomplete="off"
+                                        @keyup.enter="focusNext(fk)" />
+                                <template v-if="config['save-state']['specimen'][fk]['extras']['confirm']['enabled']">
+                                    <input type="text" class="form-control" :id="`confirm_${fk}`" ref="specimen-input" v-model="specimen[`confirm_${fk}`]" autocomplete="off"
+                                           @keyup.enter="focusNext(`confirm_${fk}`)"
+                                    />
+                                    <Teleport defer :to="`#${fk}-labels`">
+                                        <div class="col">
+                                            <label class="form-label mb-1">Confirm {{ fv['field_label'] }}<span v-if="fv['required']" class="text-danger">*</span></label>
+                                        </div>
+                                    </Teleport>
+                                </template>
+                                <template v-if="isNotEmpty(config['save-state']['specimen'][fk]['field-units'])">
+                                    <span class="input-group-text">{{ config['save-state']['specimen'][fk]['field-units'] }}</span>
+                                </template>
+                            </div>
+                        </template>
+                        <template v-else-if="fv['field_type']==='dropdown'">
+                            <select class="form-select" :id="fk" ref="specimen-input" v-model="specimen[fk]">
+                                <option value="">--</option>
+                                <option v-for="(ov, ok) in fv['choices']" :value="ok">{{ ov }}</option>
+                            </select>
+                        </template>
+                        <template v-else-if="fv['field_type']==='date'">
+                            <input type="date" class="form-control" v-model="specimen[fk]" :id="fk" ref="specimen-input" />
+                        </template>
+                        <template v-else-if="fv['field_type']==='datetime'">
+                            <input type="datetime-local" class="form-control" v-model="dt[fk]" :id="fk" ref="specimen-input" />
+                        </template>
+                        <template v-else-if="fv['field_type']==='notes'">
+                            <textarea rows="3" class="form-control" v-model="specimen[fk]" :id="fk" ref="specimen-input" />
+                        </template>
+                        <div class="alert alert-danger mt-1 mb-0 px-3 py-2" v-if="v$[fk] && v$[fk].$error">
                             <strong>Validation Error:</strong>
                             <ul class="mb-0">
-                                <li v-for="error of v$.specimen.mhn_verify.$errors" :key="error.$uid">{{ error.$message }}</li>
+                                <li v-for="error of v$[fk].$errors" :key="error.$uid" v-html="error.$message"></li>
                             </ul>
-                        </b-alert>
+                        </div>
                     </div>
-                </div>
-            </div>
-            <!-- specimen.volume -->
-            <div class="col-3 mb-2">
-                <label class="form-label">{{ volumeLabel }}</label>
-                <b-form-input
-                        ref="volume_input"
-                        autocomplete="off"
-                        v-model="specimen.volume"
-                        :state="v$.specimen.volume.$error ? false : null"
-                        @keyup.enter="focusNext"
-                        @keydown.enter="focusNext"
-                        @keydown.tab.exact.prevent="focusNext"
-                        @keyup.tab.exact.prevent="focusNext"
-                ></b-form-input>
-                <b-alert variant="danger" class="mt-1 mb-0 px-3 py-2"
-                         v-if="v$.specimen.volume.$error"
-                         show
-                >
-                    <strong>Validation Error:</strong>
-                    <ul class="mb-0">
-                        <li v-for="error of v$.specimen.volume.$errors" :key="error.$uid">{{ error.$message }}</li>
-                    </ul>
-                </b-alert>
-            </div>
-        </div>
-        <div class="row">
-            <!-- comment field -->
-            <div class="col mb-2">
-                <label class="form-label">Comments</label>
-                <b-form-textarea
-                    ref="comment"
-                    autocomplete="off"
-                    v-model="specimen.comment"
-                    :state="v$.specimen.comment.$error ? false : null"
-                    size="sm"
-                    max-rows="6"
-                ></b-form-textarea>
-                <b-alert variant="danger" class="mt-1 mb-0 px-3 py-2"
-                         v-if="v$.specimen.comment.$error"
-                         show
-                >
-                    <strong>Validation Error:</strong>
-                    <ul class="mb-0">
-                        <li v-for="error of v$.specimen.comment.$errors" :key="error.$uid">{{ error.$message }}</li>
-                    </ul>
-                </b-alert>
-            </div>
-        </div>
-        <div v-bind:class="'row border border-left-0 border-start-0 border-right-0 border-end-0 mt-2 py-2' + batchModeClass">
-            <div class="col">
-                <div class="row">
-                    <!-- specimen.date_time_processed -->
-                    <div class="col-9 mb-2">
-                        <label class="form-label">Processed Date</label>
-                        <b-form-datepicker
-                                ref="date_processed"
-                                v-model="specimen.date_processed"
-                                :state="v$.specimen.date_processed.$error ? false : null"
-                                @input="v$.specimen.time_processed.$touch()"
-                        ></b-form-datepicker>
-                    </div>
-                    <div class="col-3 mb-2">
-                        <label class="form-label">Processed Time</label>
-                        <b-form-input
-                                ref="time_processed"
-                                placeholder="i.e. 1600 or 16:00"
-                                autocomplete="off"
-                                v-model="specimen.time_processed"
-                                :state="v$.specimen.time_processed.$error ? false : null"
-                                @input="v$.specimen.date_processed.$touch()"
-                                @keyup.enter="focusNext"
-                                @keydown.enter="focusNext"
-                        ></b-form-input>
-                    </div>
-                    <div class="col-12" v-if="v$.specimen.date_processed.$error || v$.specimen.time_processed.$error">
-                        <b-alert variant="danger" class="mt-1 mb-0" show>
-                            <strong>Validation Error:</strong>
-                            <ul class="mb-0">
-                                <li v-for="error of v$.specimen.date_processed.$errors" :key="error.$uid">{{ error.$message }}</li>
-                                <li v-for="error of v$.specimen.time_processed.$errors" :key="error.$uid">{{ error.$message }}</li>
-                            </ul>
-                        </b-alert>
-                    </div>
-                </div>
-                <div class="row">
-                    <!-- specimen.date_time_frozen -->
-                    <div class="col-9 mb-2">
-                        <label class="form-label">Frozen Date</label>
-                        <b-form-datepicker
-                                ref="date_frozen"
-                                v-model="specimen.date_frozen"
-                                :state="v$.specimen.date_frozen.$error ? false : null"
-                                @input="v$.specimen.time_frozen.$touch()"
-                        ></b-form-datepicker>
-                    </div>
-                    <div class="col-3 mb-2">
-                        <label class="form-label">Frozen Time</label>
-                        <b-form-input
-                                ref="time_frozen"
-                                placeholder="i.e. 1600 or 16:00"
-                                autocomplete="off"
-                                v-model="specimen.time_frozen"
-                                :state="v$.specimen.time_frozen.$error ? false : null"
-                                @input="v$.specimen.date_frozen.$touch()"
-                                @keyup.enter="focusNext"
-                                @keydown.enter="focusNext"
-                        ></b-form-input>
-                    </div>
-                    <div class="col-12" v-if="v$.specimen.date_frozen.$error || v$.specimen.time_frozen.$error">
-                        <b-alert variant="danger" class="mt-1 mb-0" show>
-                            <strong>Validation Error:</strong>
-                            <ul class="mb-0">
-                                <li v-for="error of v$.specimen.date_frozen.$errors" :key="error.$uid">{{ error.$message }}</li>
-                                <li v-for="error of v$.specimen.time_frozen.$errors" :key="error.$uid">{{ error.$message }}</li>
-                            </ul>
-                        </b-alert>
-                    </div>
-                </div>
-                <div class="row">
-                    <!-- specimen.tech_initials -->
-                    <div class="col-3 mb-2">
-                        <label class="form-label">Processed Tech</label>
-                        <b-form-input
-                                ref="tech_initials"
-                                autocomplete="off"
-                                v-model="specimen.tech_initials"
-                                :state="v$.specimen.tech_initials.$error ? false : null"
-                        ></b-form-input>
-                        <b-alert variant="danger" class="mt-1 mb-0 px-3 py-2"
-                                 v-if="v$.specimen.tech_initials.$error"
-                                 show
-                        >
-                            <strong>Validation Error:</strong>
-                            <ul class="mb-0">
-                                <li v-for="error of v$.specimen.tech_initials.$errors" :key="error.$uid">{{ error.$message }}</li>
-                            </ul>
-                        </b-alert>
-                    </div>
-                </div>
-            </div>
+                </template>
+            </template>
         </div>
         <!-- empty spacer row -->
-        <div class="row mt-3"></div>
-        <b-alert variant="warning" class="px-3 py-2"
-                 v-if="Object.keys(warnings).length"
-                 show
-        >
+        <div class="row mt-2"></div>
+        <div class="alert alert-warning px-3 py-2" v-if="isNotEmpty(warnings)">
             <strong>CAUTION:</strong> - The following warnings exist - review before saving!
             <ul class="mb-0">
-                <li v-for="(v, k) in warnings">{{ v }}</li>
+                <li v-for="(v, k) in warnings" v-html="v"></li>
             </ul>
-        </b-alert>
+        </div>
         <div class="row">
             <div class="col d-grid mb-0">
-                <button type="button" class="btn btn-block btn-success" @click.prevent="trySaveSpecimen" ref="btn_specimen_save">
+                <button type="button" class="btn btn-success" @click="trySaveSpecimen">
                     <i class="fas fa-save"></i>&nbsp;Save
                 </button>
             </div>
-            <div class="col d-grid mb-0">
-                <button type="button" class="btn btn-block btn-danger" @click.prevent="tryResetSpecimen(false)">
+            <div class="col d-grid mb-0" v-if="mode === 'new'">
+                <button type="button" class="btn btn-danger" @click="resetSpecimen" >
                     <i class="fas fa-undo"></i>&nbsp;Reset
                 </button>
             </div>
-            <div class="col-3 d-grid mb-0">
-                <button type="button" class="btn btn-block btn-warning text-white" @click.prevent="toggleBatchMode">
-                    <i class="fas fa-sync"></i>&nbsp;Batch Mode: {{ batchMode }}
+            <div class="col d-grid mb-0" v-if="mode === 'new'">
+                <button type="button" class="btn btn-warning text-light" @click="() => batchEnabled = !batchEnabled" >
+                    <i class="fas fa-sync"></i>&nbsp;Batch Mode : {{ batchMode }}
                 </button>
             </div>
         </div>
-    </b-overlay>
+        <ConfirmDialog :group="`move-${uid}`" :style="{ width: '40rem' }" class="p-dialog-headless">
+            <template #container="{ message, acceptCallback, rejectCallback }">
+                <div class="card border-1 border-primary">
+                    <div class="card-header bg-secondary-subtle">
+                        <h5>Moving: [<span class="text-monospace text-danger">{{ message.header }}</span>]</h5>
+                    </div>
+                    <div class="card-body py-0">
+                        <table class="table text-center m-0">
+                            <thead>
+                            <tr>
+                                <th>From</th>
+                                <th><i class="fas fa-angle-double-right"></i></th>
+                                <th>To</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            <tr>
+                                <td>{{ message.message.box.box_name }}</td>
+                                <th>BOX</th>
+                                <td>{{ box_info['box_name'] }}</td>
+                            </tr>
+                            <tr>
+                                <td>{{ message.message.specimen.box_position }}</td>
+                                <th>POS</th>
+                                <td>{{ box_position.position }}</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="card-footer bg-secondary-subtle">
+                        <div class="d-flex gap-2 justify-content-end">
+                            <button type="button" class="btn btn-outline-dark" @click="rejectCallback" ref="moveCancelBtn">Cancel</button>
+                            <button type="button" class="btn btn-primary" @click="acceptCallback">Confirm</button>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </ConfirmDialog>
+        <ConfirmDialog :group="`warnings-${uid}`" :style="{ width: '40rem' }" class="p-dialog-headless">
+            <template #container="{ message, acceptCallback, rejectCallback }">
+                <div class="card border-1 border-warning">
+                    <div class="card-header bg-warning-subtle">
+                        <h5 class="mb-0">{{ message.header }}</h5>
+                    </div>
+                    <div class="card-body py-0">
+                        <div>
+                            <p class="lead">The following <strong class="text-danger text-uppercase">warnings</strong> exist.  Please review prior to saving this specimen.</p>
+                            <ul>
+                                <li v-for="(v, k) in message.message" v-html="v"></li>
+                            </ul>
+                            <!-- check for a target note field for documenting the ack -->
+                            <div v-if="isNotEmpty(config['general']['warning_ack_field'])"
+                                 class="border-start border-3 border-warning bg-warning-subtle py-2 ps-2 mb-3">
+                                <strong class="text-warning">NOTE:</strong> Upon Save, the warnings will be appended to the <code>[{{ config['general']['warning_ack_field'] }}]</code> field.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-warning">
+                        <div class="d-flex gap-2 justify-content-end">
+                            <button type="button" class="btn btn-outline-dark" @click="rejectCallback" ref="confirmWarningCancelBtn">Cancel</button>
+                            <button type="button" class="btn btn-success" @click="acceptCallback">Save</button>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </ConfirmDialog>
+        <ProgressSpinner v-show="isLoading" class="overlay"/>
+    </BlockUI>
+    <pre v-if="debug" class="mt-3">{{ debug }}</pre>
 </template>
 
-<script>
-    // QS
-    import qs from 'qs';
-    // DatePicker
-    import DatePicker from 'vue2-datepicker';
-    import 'vue2-datepicker/index.css';
-    // Luxon
-    import { DateTime, Interval } from 'luxon';
-    // Vuelidate
-    import useVuelidate from '@vuelidate/core'
-    import {
-        helpers,
-        required,
-        requiredUnless,
-        sameAs
-    } from '@vuelidate/validators'
-    // Loader
-    import loader from '../loader.vue'
-
-    const notInTheFuture = (param) => helpers.withParams(
-        { type: 'notInTheFuture', value: param },
-        (value, vm, model) => param === null || DateTime.fromFormat(param, model.luxonDateFormatFrom) <= DateTime.now()
-    );
-
-    const notBeforeCollected = (param) => helpers.withParams(
-        { type: 'notBeforeCollected', value: param },
-        (value, vm, model) =>
-            param === null ||
-            model.dateTimeCollected === null ||
-            DateTime.fromFormat(param, model.luxonDateFormatFrom) >= DateTime.fromFormat(model.dateTimeCollected, model.luxonDateFormatFrom)
-    );
-
-    const notBeforeProcessed = (param) => helpers.withParams(
-        { type: 'notBeforeProcessed', value: param },
-        (value, vm, model) =>
-            param === null ||
-            model.dateTimeProcessed === null ||
-            DateTime.fromFormat(param, model.luxonDateFormatFrom) >= DateTime.fromFormat(model.dateTimeProcessed, model.luxonDateFormatFrom)
-    );
-
-    const specimenMatchesBox = (value, vm, model) => {
-        let specimen_match = value.match(model.config.specimen_name_regex);
-        // ignore if it's not a match - either empty or base regex validation failed
-        if (specimen_match === null) return true;
-        let is_valid = true;
-        // since [sample_type] is required, it can be parsed out of the nomenclature loop
-        if (model.box_info.sample_type !== null) {
-            is_valid = is_valid && model.box_info.sample_type === specimen_match.groups['sample_type'];
-        }
-        // debug
-        // model.debugMsg = [ model.box_info.box_name_parsed ];
-        for (const [key, value] of Object.entries(model.box_info.box_name_parsed)) {
-            // debug
-            // model.debugMsg.push('key='+key+', value='+value);
-            let a, b;
-            switch(key) {
-                case "visit":
-                case "aliquot_number":
-                    a = parseInt(specimen_match.groups[key]);
-                    b = parseInt(value);
-                    // debug
-                    // model.debugMsg.push('key='+key+'|a='+a+'|b='+b);
-                    // ensure they both parsed as integer, then compare
-                    // a value of '00' allows any values
-                    is_valid = is_valid && !isNaN(a) && !isNaN(b) && (b === 0 || a === b);
-                    break;
-                default:
-                    // ignore groups not specifically targeted for this validation
-                    break;
-            }
-        }
-        return is_valid;
-    };
-
-    export default {
-        setup: () => {
-            return {
-                v$: useVuelidate({
-                    $lazy: true,
-                    $autoDirty: true,
-                    $stopPropagation: true
-                })
-            }
-        },
-        components: {
-            qs,
-            DatePicker,
-            loader
-        },
-        props: {
-            'reset-disable': {
-                type: String,
-                required: false
-            },
-            'batch-disable': {
-                type: String,
-                required: false
-            },
-            mode: {
-                type: String,
-                required: true
-            },
-            box_record_id: {
-                type: String,
-                required: true
-            },
-            box_info: {
-                type: Object,
-                required: true
-            },
-            config: {
-                type: Object,
-                required: true
-            }
-        },
-        validations() {
-            return {
-                specimen: {
-                    name: {
-                        required: helpers.withMessage('Specimen ID is required', required),
-                        regexMatch: helpers.withMessage('Value provided does not match the required nomenclature!',
-                            (value) => this.isEmpty(value) || value.match(this.config.specimen_name_regex)
-                        ),
-                        specimenMatchesBox: helpers.withMessage('Box nomenclature mismatch - one or more parts do not align with the current box', specimenMatchesBox)
-                    },
-                    csid: {
-                        requiredUnless: helpers.withMessage('CSID is required', requiredUnless(() => { return this.csidOverride; })),
-                        csidFormat: helpers.withMessage('Must be exactly 10 digits', helpers.regex(this.csidFormat))
-                    },
-                    cuid: {
-                        requiredUnless: helpers.withMessage('CUID is required', requiredUnless(() => { return this.cuidOverride; })),
-                        cuidFormat: helpers.withMessage('Must be 8 alphanumeric in length and contain at least 1 alpha character', helpers.regex(this.cuidFormat))
-                    },
-                    date_collected: {
-                        required: helpers.withMessage('Collected Date is required', required),
-                        notInTheFuture: helpers.withMessage('Collected Date/Time cannot be in the future', notInTheFuture(this.dateTimeCollected)),
-                    },
-                    time_collected: {
-                        required: helpers.withMessage('Collected Time is required', required),
-                        timeFormat: helpers.withMessage('Invalid Time Format', helpers.regex(this.timeFormat))
-                    },
-                    date_processed: {
-                        required: helpers.withMessage('Processed Date is required', required),
-                        notInTheFuture: helpers.withMessage('Processed Date/Time cannot be in the future', notInTheFuture(this.dateTimeProcessed)),
-                        notBeforeCollected: helpers.withMessage('Processed Date/Time must be after Collected Date/Time', notBeforeCollected(this.dateTimeProcessed)),
-                    },
-                    time_processed: {
-                        required: helpers.withMessage('Processed Time is required', required),
-                        timeFormat: helpers.withMessage('Invalid Time Format', helpers.regex(this.timeFormat))
-                    },
-                    date_frozen: {
-                        // required: helpers.withMessage('Frozen Date is required', required),
-                        notInTheFuture: helpers.withMessage('Frozen Date/Time cannot be in the future', notInTheFuture(this.dateTimeFrozen)),
-                        notBeforeProcessed: helpers.withMessage('Frozen Date/Time must be after Processed Date/Time', notBeforeProcessed(this.dateTimeFrozen)),
-                    },
-                    time_frozen: {
-                        // required: helpers.withMessage('Frozen Time is required', required),
-                        timeFormat: helpers.withMessage('Invalid Time Format', helpers.regex(this.timeFormat))
-                    },
-                    mhn_verify: {
-                        sameAsMHN: helpers.withMessage('MHN values must match!', sameAs(this.specimen.mhn))
-                    },
-                    volume: {
-                        required: helpers.withMessage('Volume is required', required),
-                        volumeFormat: helpers.withMessage('Invalid Format - Must be numeric with 1 decimal place (i.e. 1.0)', helpers.regex(this.volumeFormat))
-                    },
-                    tech_initials: {
-                        required: helpers.withMessage('Tech Initials is required', required)
-                    },
-                    comment: {}
-                }
-            }
-        },
-        data() {
-            return {
-                dateFormat: 'YYYY-MM-DD HH:mm',
-                luxonDateFormatFrom: 'yyyy-MM-dd HH:mm',
-                maxDate: DateTime.now().toFormat('yyyy-MM-dd'),
-                limitCollToProcMin: 30,
-                limitCollToProcMaxDefault: 1080,
-                limitProcToFroz: 10,
-                timeFormat: /^(?<hour>[01][0-9]|2[0-3])(?<separator>:)?(?<minute>[0-5][0-9])$/,
-                csidFormat: /^\d{10}$/,
-                cuidFormat: /^(?=.*([a-zA-Z]+))[a-zA-Z0-9]{8}$/,
-                volumeFormat: /^(\d+)(\.\d)$/,
-                // primary dataset
-                specimen: {
-                    record_id: null,
-                    name: null,
-                    csid: null,
-                    cuid: null,
-                    date_collected: null,
-                    time_collected: null,
-                    mhn_verify: null,
-                    date_processed: null,
-                    time_processed: null,
-                    date_frozen: null,
-                    time_frozen: null,
-                    mhn: null,
-                    volume: this.config.default_volume ?? null,
-                    tech_initials: null,
-                    comment: null,
-                    box_position: null
-                },
-                // server-side validation support
-                vuelidateExternalResults: {
-                    specimen: {
-                        name: [],
-                        csid: [],
-                        cuid: []
-                    }
-                },
-                errors: [],
-                warnings: {},
-                isOverlayed: false,
-                focusOverride: false,
-                csid_override: false,
-                cuid_override: false,
-                lastFocused: null,
-                batchEnabled: false,
-                debugMsg: null
-            }
-        },
-        watch: {
-            'specimen.date_collected': function(newVal, oldVal) {
-                setTimeout(() => {
-                    this.focusElement('time_collected');
-                }, 150);
-                // trigger soft time validations
-                this.checkDateTimeIntervals();
-            },
-            'specimen.date_processed': function(newVal, oldVal) {
-                setTimeout(() => {
-                    this.focusElement('time_processed');
-                }, 150);
-                // trigger soft time validations
-                this.checkDateTimeIntervals();
-            },
-            'specimen.date_frozen': function(newVal, oldVal) {
-                setTimeout(() => {
-                    this.focusElement('time_frozen');
-                }, 150);
-                // trigger soft time validations
-                this.checkDateTimeIntervals();
-            },
-            'specimen.time_collected': function(newTime, oldTime) {
-                if (newTime == null) return;
-                // modify to include the ':' separator, if necessary
-                let newTimeMatches = newTime.match(this.timeFormat);
-                if (newTimeMatches && !newTimeMatches.groups.separator) {
-                    this.specimen.time_collected = [newTimeMatches.groups.hour, newTimeMatches.groups.minute].join(':');
-                }
-                // trigger soft time validations
-                this.checkDateTimeIntervals();
-            },
-            'specimen.time_processed': function(newTime, oldTime) {
-                if (newTime == null) return;
-                // modify to include the ':' separator, if necessary
-                let newTimeMatches = newTime.match(this.timeFormat);
-                if (newTimeMatches && !newTimeMatches.groups.separator) {
-                    this.specimen.time_processed = [newTimeMatches.groups.hour, newTimeMatches.groups.minute].join(':');
-                }
-                // trigger soft time validations
-                this.checkDateTimeIntervals();
-            },
-            'specimen.time_frozen': function(newTime, oldTime) {
-                if (newTime == null) return;
-                // modify to include the ':' separator, if necessary
-                let newTimeMatches = newTime.match(this.timeFormat);
-                if (newTimeMatches && !newTimeMatches.groups.separator) {
-                    this.specimen.time_frozen = [newTimeMatches.groups.hour, newTimeMatches.groups.minute].join(':');
-                }
-                // trigger soft time validations
-                this.checkDateTimeIntervals();
-            }
-        },
-        computed: {
-            dateTimeCollected: {
-                get: function() {
-                    if (this.specimen.date_collected && this.specimen.time_collected && this.specimen.time_collected.match(this.timeFormat)) {
-                        return this.specimen.date_collected + ' ' + this.specimen.time_collected;
-                    } else {
-                        return null;
-                    }
-                },
-                set: function(newValue) {
-                    let parts = newValue.split(' ');
-                    this.specimen.date_collected = parts[0];
-                    this.specimen.time_collected = parts[1];
-                }
-            },
-            dateTimeProcessed: {
-                get: function() {
-                    if (this.specimen.date_processed && this.specimen.time_processed && this.specimen.time_processed.match(this.timeFormat)) {
-                        return this.specimen.date_processed + ' ' + this.specimen.time_processed;
-                    } else {
-                        return null;
-                    }
-                },
-                set: function(newValue) {
-                    let parts = newValue.split(' ');
-                    this.specimen.date_processed = parts[0];
-                    this.specimen.time_processed = parts[1];
-                }
-            },
-            dateTimeFrozen: {
-                get: function() {
-                    if (this.specimen.date_frozen && this.specimen.time_frozen && this.specimen.time_frozen.match(this.timeFormat)) {
-                        return this.specimen.date_frozen + ' ' + this.specimen.time_frozen;
-                    } else {
-                        return null;
-                    }
-                },
-                set: function(newValue) {
-                    let parts = newValue.split(' ');
-                    this.specimen.date_frozen = parts[0];
-                    this.specimen.time_frozen = parts[1];
-                }
-            },
-            csidOverride: {
-                get: function() {
-                    if (this.config && this.config.cdc_override_checked) {
-                        return this.config.cdc_override_checked;
-                    } else {
-                        return this.csid_override;
-                    }
-                },
-                set: function(newValue) {
-                    this.csid_override = newValue;
-                }
-            },
-            cuidOverride: {
-                get: function() {
-                    if (this.config && this.config.cdc_override_checked) {
-                        return this.config.cdc_override_checked;
-                    } else {
-                        return this.cuid_override;
-                    }
-                },
-                set: function(newValue) {
-                    this.cuid_override = newValue;
-                }
-            },
-            limitCollToProcMax: function() {
-                return (this.config && this.config.collected_to_processed_minutes_max) ? this.config.collected_to_processed_minutes_max : this.limitCollToProcMaxDefault;
-            },
-            batchMode: function() {
-                return this.batchEnabled ? 'On' : 'Off';
-            },
-            batchModeClass: function() {
-                return this.batchEnabled ? ' alert-warning border-warning' : '';
-            },
-            volumeLabel: function() {
-                if (this.box_info && this.box_info.sample_type) {
-                    // make this check case-insensitive
-                    let label = this.config['sample_type_units'][this.box_info.sample_type.toLowerCase()];
-                    if (label) {
-                        return label;
-                    }
-                }
-                return 'Volume';
-            },
-            debugOutput: function() {
-                return JSON.stringify(this.debugMsg, null, '\t');
-            }
-        },
-        methods: {
-            async post(action, data, callback, doOverlay = true, doFocusOverride = false) {
-                if (doOverlay === true) {
-                    this.isOverlayed = true;
-                }
-                if (doFocusOverride === true) {
-                    this.focusOverride = true;
-                }
-                data = Object.assign({
-                    redcap_csrf_token: OrcaSpecimenTracking().redcap_csrf_token,
-                    action: action
-                }, data);
-                this.axios({
-                    url: OrcaSpecimenTracking().url,
-                    method: 'post',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    data: qs.stringify(data)
-                })
-                .then(response => {
-                    if (response.data) {
-                        callback(response.data);
-                    }
-                })
-                .catch(e => {
-                    let errorMsg = 'An unknown error occurred';
-                    if (e.response && e.response.data) {
-                        errorMsg = e.response.data;
-                    }
-                    this.toast(
-                        errorMsg,
-                        'Action Failed',
-                        'danger'
-                    );
-                })
-                .finally(() => {
-                    if (doOverlay === true) {
-                        setTimeout(() => {
-                            this.isOverlayed = false;
-                        }, 250);
-                    }
-                });
-            },
-            async loadSpecimen(record_id) {
-                if (!record_id) {
-                    return;
-                }
-                this.isOverlayed = true;
-                this.focusOverride = true;
-                this.resetSpecimen();
-                const data = {
-                    redcap_csrf_token: OrcaSpecimenTracking().redcap_csrf_token,
-                    action: 'get-specimen',
-                    specimen_record_id: record_id
-                };
-                this.axios({
-                    url: OrcaSpecimenTracking().url,
-                    method: 'post',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    data: qs.stringify(data)
-                })
-                .then(response => {
-                    if (response.data) {
-                        // must set each individual property
-                        // trying to set the entire specimen will break everything!
-                        this.specimen.record_id = response.data.record_id;
-                        this.specimen.name = response.data.name;
-                        this.specimen.csid = response.data.csid;
-                        this.specimen.cuid = response.data.cuid;
-                        this.specimen.mhn = response.data.mhn;
-                        this.specimen.mhn_verify = response.data.mhn;
-                        this.specimen.volume = response.data.volume;
-                        this.specimen.tech_initials = response.data.tech_initials;
-                        this.specimen.comment = response.data.comment;
-                        this.specimen.box_position = response.data.box_position;
-
-                        this.dateTimeCollected = response.data.date_time_collected;
-                        this.dateTimeProcessed = response.data.date_time_processed;
-                        this.dateTimeFrozen = response.data.date_time_frozen;
-
-                        this.v$.specimen.$reset();
-                        setTimeout(() => {
-                            this.resetFocus();
-                        }, 250);
-                    }
-                })
-                .catch(e => {
-                    let errorMsg = 'An unknown error occurred';
-                    if (e.response.data) {
-                        errorMsg = e.response.data;
-                    }
-                    this.toast(
-                        errorMsg,
-                        'Specimen Load Failed',
-                        'danger'
-                    );
-                })
-                .finally(() => {
-                    setTimeout(() => {
-                        this.isOverlayed = false;
-                    }, 250);
-                });
-            },
-            async searchSpecimen(search_value) {
-                this.isOverlayed = true;
-                // this.focusOverride = true;
-                this.resetSpecimen(true, true);
-                const data = {
-                    redcap_csrf_token: OrcaSpecimenTracking().redcap_csrf_token,
-                    action: 'search-specimen',
-                    search_value: search_value
-                };
-                this.axios({
-                    url: OrcaSpecimenTracking().url,
-                    method: 'post',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    data: qs.stringify(data)
-                })
-                .then(response => {
-                    if (response.data) {
-                        this.searchSpecimenCallback(response.data);
-                    }
-                })
-                .catch(e => {
-                    let errorMsg = 'An unknown error occurred';
-                    if (e.response && e.response.data) {
-                        errorMsg = e.response.data;
-                    }
-                    this.toast(
-                        errorMsg,
-                        'Specimen Search Failed',
-                        'danger'
-                    );
-                })
-                .finally(() => {
-                    setTimeout(() => {
-                        this.isOverlayed = false;
-                    }, 250);
-                });
-            },
-            searchSpecimenCallback: function(data) {
-                switch (data.match_type) {
-                    case "exact":
-                        if (data.specimen.box_record_id === this.box_record_id &&
-                            data.specimen.box_position === this.specimen.box_position) {
-                            Object.assign(this.vuelidateExternalResults.specimen, {
-                                name: [ 'Cannot process specimen as it already exists on this box!' ]
-                            });
-                            this.$nextTick(() => {
-                                this.v$.specimen.name.$validate();
-                            });
-                        } else if (data.plate.box_status === 'closed') {
-                            Object.assign(this.vuelidateExternalResults.specimen, {
-                                name: [ 'Cannot process specimen because it exists on a closed box!' ]
-                            });
-                            this.$nextTick(() => {
-                                this.v$.specimen.name.$validate();
-                            });
-                        } else if (this.validateParticipantTemporaryBox(data)) {
-                            // specimen move, validate target well position
-                            /*
-                                data.plate.box_name
-                                data.specimen.box_position
-                                data.specimen.box_record_id
-                             */
-                            const h = this.$createElement;
-                            const ack = h('table', { class: [ 'table', 'text-center', 'm-0' ] }, [
-                                h('thead', [
-                                    h('tr', [
-                                        h('th', 'From'),
-                                        h('th', [
-                                            h('i', { class: [ 'fas', 'fa-angle-double-right' ] })
-                                        ]),
-                                        h('th', 'To')
-                                    ])
-                                ]),
-                                h('tbody', [
-                                    h('tr', [
-                                        h('td', data.plate.box_name),
-                                        h('th', 'BOX'),
-                                        h('td', this.box_info.box_name)
-                                    ]),
-                                    h('tr', [
-                                        h('td', data.specimen.box_position),
-                                        h('th', 'POS'),
-                                        h('td', this.specimen.box_position)
-                                    ])
-                                ]),
-                            ]);
-                            this.$bvModal.msgBoxConfirm([ack], {
-                                titleHtml: `Moving: [<span class='text-monospace text-danger'>${data.specimen.name}</span>]`,
-                                headerClass: 'alert-secondary',
-                                headerBorderVariant: 'secondary',
-                                footerClass: 'alert-secondary',
-                                footerBorderVariant: 'secondary',
-                                bodyClass: 'p-0',
-                                okTitle: 'Confirm',
-                                cancelTitle: 'Cancel',
-                                centered: true
-                            })
-                            .then(value => {
-                                if (value === true) {
-                                    // move specimen
-                                    data.specimen.box_record_id = this.box_record_id;
-                                    data.specimen.box_position = this.specimen.box_position;
-                                    this.saveSpecimen(data.specimen);
-                                } else {
-                                    this.resetSpecimen(false, true);
-                                }
-                            })
-                            .catch(e => {
-                                let errorMsg = 'An unknown error occurred';
-                                if (e.response.data) {
-                                    errorMsg = e.response.data;
-                                }
-                                this.toast(
-                                    errorMsg,
-                                    'Add Specimen Failed',
-                                    'danger'
-                                );
-                            });
-                        }
-                        this.focusOverride = false;
-                        break;
-                    case "participant":
-                        // additional validation based on match data from the server
-                        if (!this.validateParticipantTemporaryBox(data)) return;
-                        // validate visit order
-                        let this_visit = parseInt(data.parsed_value.visit);
-                        if (data.max_visit !== null && this_visit < data.max_visit) {
-                            Object.assign(this.vuelidateExternalResults.specimen, {
-                                name: [ `Visit sequence error - Expected: >= ${data.max_visit}, Actual: ${this_visit}` ]
-                            });
-                            this.$nextTick(() => {
-                                this.v$.specimen.name.$validate();
-                            });
-                            return;
-                        }
-                        // found a valid match, so prefill
-                        this.specimen.mhn = data.specimen.mhn;
-                        this.specimen.mhn_verify = data.specimen.mhn;
-                        this.toast(
-                            'Pre-filling MHN based on Participant-only match',
-                            'Participant Match (' + data.specimen.name + ')',
-                            'info'
-                        );
-                        // this.focusOverride = false;
-                        // this.focusElement('csid_input');
-                        break;
-                    case "full":
-                        // additional validation based on match data from the server
-                        if (!this.validateParticipantTemporaryBox(data)) return;
-                        // found a valid match, so prefill
-                        this.specimen.mhn = data.specimen.mhn;
-                        this.specimen.mhn_verify = data.specimen.mhn;
-                        this.dateTimeCollected = data.specimen.date_time_collected;
-                        this.dateTimeProcessed = data.specimen.date_time_processed;
-                        this.dateTimeFrozen = data.specimen.date_time_frozen;
-                        this.specimen.tech_initials = data.specimen.tech_initials;
-                        this.specimen.comment = data.specimen.comment;
-                        this.toast(
-                            'Pre-filling all fields based on Participant/Visit/SampleType match.',
-                            'Full Match (' + data.specimen.name + ')',
-                            'info'
-                        );
-                        this.focusOverride = false;
-                        // blind disable batch mode since we're copying data into batch fields
-                        this.batchEnabled = false;
-                        // offset next focus by 250ms due to date-picker offset of 150ms /sadface
-                        setTimeout(() => {
-                            this.focusElement('csid_input');
-                        }, 250);
-                        break;
-                    default:
-                        this.toast(
-                            'New Specimen',
-                            'No Match Found',
-                            'info'
-                        );
-                        // this.focusOverride = false;
-                        // this.focusElement('csid_input');
-                        break;
-                }
-                this.v$.specimen.name.$reset();
-            },
-            isTemporaryBoxType: function(plate) {
-                return plate && plate.box_name_parsed.box_type === '00';
-            },
-            /**
-             * Ensure the scanned specimen can be placed in this box.
-             * - No other temporary box exists that this specimen *should* go in
-             * @param data
-             * @returns {boolean} True if the box is valid or the project does not use temporary boxes
-             */
-            validateParticipantTemporaryBox: function(data) {
-                // BOTH boxes have to be temporary ('00') for this validation to fail
-                // don't use the specimen box as this "closest" specimen may be invalid for other validation reasons
-                let isValid = true;
-                if (this.config.use_temp_box_type === true
-                    && data.other_boxes && Object.values(data.other_boxes).length > 0
-                    && this.isTemporaryBoxType(this.box_info)
-                ) {
-                    // loop through all "other" boxes to see if one exists where this specimen belongs
-                    for (const b of Object.values(data.other_boxes)) {
-                        if (this.isTemporaryBoxType(b) && b.record_id !== this.box_record_id) {
-                            isValid = false;
-                            break;
-                        }
-                    }
-                    if (!isValid) {
-                        Object.assign(this.vuelidateExternalResults.specimen, {
-                            name: [ 'Temporary "00" Box Error - One or more specimens for this participant exist in another box!' ]
-                        });
-                        this.$nextTick(() => {
-                            this.v$.specimen.name.$validate();
-                        });
-                    }
-                }
-                return isValid;
-            },
-            validateCSIDCallback: function(data) {
-                if (data.isValid === false && data.errors && data.length > 0) {
-                    Object.assign(this.vuelidateExternalResults.specimen, {
-                        csid: data.errors
-                    });
-                    this.$nextTick(() => {
-                        this.v$.specimen.csid.$validate();
-                    });
-                } else {
-                    // this.focusOverride = false;
-                    // this.focusElement('cuid_input');
-                    this.v$.specimen.csid.$reset();
-                }
-            },
-            validateCSID: function(specimen, csid) {
-                this.post('validate-csid', { specimen: specimen, csid: csid }, this.validateCSIDCallback);
-            },
-            validateCUIDCallback: function(data) {
-                if (data.isValid === false && data.errors && data.length > 0) {
-                    Object.assign(this.vuelidateExternalResults.specimen, {
-                        cuid: data.errors
-                    });
-                    this.$nextTick(() => {
-                        this.v$.specimen.cuid.$validate();
-                    });
-                } else {
-                    // this.focusOverride = false;
-                    // this.focusElement('date_collected');
-                    this.v$.specimen.cuid.$reset();
-                }
-            },
-            validateCUID: function(cuid) {
-                this.post('validate-cuid', { cuid: cuid }, this.validateCUIDCallback);
-            },
-            specimenScanned: function() {
-                if (this.v$.specimen.name.$dirty && !this.v$.specimen.name.$error) {
-                    // ensure there's a valid well position available
-                    let response = this.$parent.$parent.getWellForSpecimen(this.specimen.name);
-                    if (response.result === true) {
-                        this.specimen.box_position = response.wellPosition;
-                        this.searchSpecimen(this.specimen.name);
-                    } else {
-                        Object.assign(this.vuelidateExternalResults.specimen, response.errors.specimen);
-                    }
-                }
-            },
-            cuidScanned: function(e) {
-                if (this.v$.specimen.cuid.$dirty && !this.v$.specimen.cuid.$error) {
-                    this.v$.specimen.cuid.$reset();
-                    this.validateCUID(this.specimen.cuid);
-                } else {
-                    this.validateCUIDCallback({});
-                }
-            },
-            csidScanned: function(e) {
-                if (!this.v$.specimen.name.$error
-                    && this.v$.specimen.csid.$dirty && !this.v$.specimen.csid.$error
-                ) {
-                    this.v$.specimen.csid.$reset();
-                    this.validateCSID(this.specimen.name, this.specimen.csid);
-                } else {
-                    this.validateCSIDCallback({});
-                }
-            },
-            appendComment: function(comments = [], separator = '\n') {
-                if (this.specimen.comment && this.specimen.comment.length > 0) {
-                    comments.unshift(this.specimen.comment);
-                }
-                this.specimen.comment = comments.join(separator);
-            },
-            resetSpecimen: function(preserveName = false, preservePosition = false) {
-                this.specimen = {
-                    record_id: null,
-                    name: preserveName ? this.specimen.name : null,
-                    csid: null,
-                    cuid: null,
-                    date_collected: null,
-                    time_collected: null,
-                    mhn: null,
-                    mhn_verify: null,
-                    volume: this.config.default_volume ?? null,
-                    comment: null,
-                    date_processed: this.batchEnabled ? this.specimen.date_processed : null,
-                    time_processed: this.batchEnabled ? this.specimen.time_processed : null,
-                    date_frozen: this.batchEnabled ? this.specimen.date_frozen : null,
-                    time_frozen: this.batchEnabled ? this.specimen.time_frozen : null,
-                    tech_initials: this.batchEnabled ? this.specimen.tech_initials : null,
-                    box_position: preservePosition ? this.specimen.box_position : null
-                };
-                this.csidOverride = this.config.cdc_override_checked ?? false;
-                this.cuidOverride = this.config.cdc_override_checked ?? false;
-                this.v$.specimen.$reset();
-            },
-            tryResetSpecimen: function(preserveName = false) {
-                this.resetSpecimen(preserveName);
-                setTimeout(() => {
-                    this.resetFocus();
-                }, 250);
-            },
-            saveSpecimen: function(specimen) {
-                // set overlay
-                this.isOverlayed = true;
-                // build data
-                const data = {
-                    redcap_csrf_token: OrcaSpecimenTracking().redcap_csrf_token,
-                    action: 'save-specimen',
-                    specimen: specimen
-                };
-                // submit requests
-                this.axios({
-                    url: OrcaSpecimenTracking().url,
-                    method: 'post',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    data: qs.stringify(data)
-                })
-                .then(response => {
-                    if (response.data) {
-                        this.focusOverride = true;
-                        // push back to root so it can be added to specimen list
-                        this.$emit('specimenSaved', response.data);
-                        this.tryResetSpecimen();
-                    }
-                })
-                .catch(e => {
-                    let errorMsg = 'An unknown error occurred';
-                    if (e.response.data) {
-                        errorMsg = e.response.data;
-                    }
-                    this.toast(
-                        errorMsg,
-                        'Add Specimen Failed',
-                        'danger'
-                    );
-                })
-                .finally(() => {
-                    setTimeout(() => {
-                        this.isOverlayed = false;
-                    }, 250);
-                });
-            },
-            async trySaveSpecimen() {
-                let isValid = await this.v$.specimen.$validate();
-                if (isValid) {
-                    let okToSave = true;
-                    if (Object.keys(this.warnings).length) {
-                        const h = this.$createElement;
-                        // modal body create
-                        let warnings = [];
-                        for (const [key, value] of Object.entries(this.warnings)) {
-                            warnings.push(h('li', value));
-                        }
-                        const ack = h('div', void 0, [
-                            h('p', { class: [ 'lead' ] }, [
-                                'The following ',
-                                h('strong', { class: [ 'text-danger', 'text-uppercase' ]}, 'warnings'),
-                                ' exist.  Please review prior to saving this specimen.'
-                            ]),
-                            h('ul', { class: [ 'font-weight-bold' ]}, warnings)
-                        ]);
-                        // show confirmation dialog
-                        await this.$bvModal.msgBoxConfirm([ack], {
-                            size: 'lg',
-                            title: `Save Acknowledgement`,
-                            headerBgVariant: 'warning',
-                            headerBorderVariant: 'secondary',
-                            headerTextVariant: 'dark',
-                            okTitle: 'Save',
-                            cancelTitle: 'Cancel',
-                            okVariant: 'success',
-                            footerClass: 'alert-warning',
-                            footerBorderVariant: 'warning',
-                            footerTextVariant: 'light',
-                            centered: true
-                        })
-                        .then(value => {
-                            if (value === true) {
-                                const pfx = `[${DateTime.now().toFormat(this.luxonDateFormatFrom)}][${OrcaSpecimenTracking().userid}]`;
-                                let comments = [];
-                                for (const c of Object.values(this.warnings)) {
-                                    comments.push(`${pfx} - ${c}`);
-                                }
-                                this.appendComment(comments);
-                            } else {
-                                // do not save specimen
-                                okToSave = false;
-                            }
-                        })
-                        .catch(e => {
-                            // if something failed, don't save
-                            okToSave = false;
-                            let errorMsg = 'An unknown error occurred';
-                            if (e.response.data) {
-                                errorMsg = e.response.data;
-                            }
-                            this.toast(
-                                errorMsg,
-                                'Add Specimen Failed',
-                                'danger'
-                            );
-                        });
-                    }
-                    if (okToSave) {
-                        this.saveSpecimen({
-                            record_id: this.specimen.record_id,
-                            name: this.specimen.name,
-                            csid: this.specimen.csid,
-                            cuid: this.specimen.cuid,
-                            date_time_collected: this.dateTimeCollected,
-                            date_time_processed: this.dateTimeProcessed,
-                            date_time_frozen: this.dateTimeFrozen,
-                            mhn: this.specimen.mhn,
-                            volume: this.specimen.volume,
-                            tech_initials: this.specimen.tech_initials,
-                            comment: this.specimen.comment,
-                            box_record_id: this.box_record_id,
-                            box_position: this.specimen.box_position
-                        });
-                    }
-                }
-            },
-            // interactivity support
-            resetFocus: function() {
-                this.focusOverride = false;
-                this.focusElement('specimen_id_input');
-            },
-            focusElement: function(refName) {
-                if (!this.focusOverride && this.$refs[refName]) {
-                    this.$nextTick(() => {
-                        this.$refs[refName].focus();
-                    });
-                }
-            },
-            focusNext: function(e) {
-                // avoid unnecessary processing time if focus change is disabled
-                if (this.focusOverride) return;
-                // process focus change
-                switch (e.type) {
-                    case 'keydown':
-                        this.lastFocused = e.target.id;
-                        break;
-                    case 'keyup':
-                        if (this.lastFocused === e.target.id) {
-                            this.lastFocused = null;
-                            let id_ref = null;
-                            for (const [key, value] of Object.entries(this.$refs)) {
-                                if (e.target.id === value.$el.id) {
-                                    id_ref = key;
-                                    break;
-                                }
-                            }
-                            switch (id_ref) {
-                                case 'specimen_id_input': this.focusElement('csid_input'); break;
-                                case 'csid_input':        this.focusElement('cuid_input'); break;
-                                case 'cuid_input':        this.focusElement('date_collected'); break;
-                                case 'time_collected':    this.focusElement('mhn_input'); break;
-                                case 'mhn_input':         this.focusElement('mhn_verify'); break;
-                                case 'mhn_verify':        this.focusElement('volume_input'); break;
-                                case 'volume_input':      this.focusElement('comment'); break;
-                                case 'comment':
-                                    if (this.batchEnabled) {
-                                        this.focusElement('btn_specimen_save');
-                                    } else {
-                                        this.focusElement('date_processed');
-                                    }
-                                    break;
-                                case 'time_processed':    this.focusElement('date_frozen'); break;
-                                case 'time_frozen':       this.focusElement('tech_initials'); break;
-                            }
-                        }
-                        break;
-                }
-            },
-            checkDateTimeIntervals: function() {
-                const dt1 = this.dateTimeCollected;
-                const dt2 = this.dateTimeProcessed;
-                const dt3 = this.dateTimeFrozen;
-                // first reset warnings
-                if (this.warnings.hasOwnProperty("coll_to_proc_fail")) {
-                    delete this.warnings["coll_to_proc_fail"];
-                }
-                if (this.warnings.hasOwnProperty("prod_to_froz_fail")) {
-                    delete this.warnings["prod_to_froz_fail"];
-                }
-                // collected -> processed >= 30 minutes && <= 18 hours
-                if (dt1 !== null && dt2 !== null) {
-                    const diff1 = Interval.fromDateTimes(
-                        DateTime.fromFormat(dt1, this.luxonDateFormatFrom),
-                        DateTime.fromFormat(dt2, this.luxonDateFormatFrom)
-                    );
-                    if (diff1.length("minutes") < this.limitCollToProcMin) {
-                        this.warnings["coll_to_proc_fail"] = "Collected to Processed time ("
-                            + diff1.toDuration(['hours', 'minutes']).toHuman()
-                            + ") must be at least " + this.limitCollToProcMin + " minutes";
-                    } else if (diff1.length("minutes") > this.limitCollToProcMax) {
-                        this.warnings["coll_to_proc_fail"] = "Collected to Processed time ("
-                            + diff1.toDuration(['hours', 'minutes']).toHuman()
-                            + ") cannot exceed " + (this.limitCollToProcMax / 60) + " hours";
-                    }
-                }
-                // processed -> frozen <= 10 minutes
-                if (dt2 !== null && dt3 !== null) {
-                    const diff2 = Interval.fromDateTimes(
-                        DateTime.fromFormat(dt2, this.luxonDateFormatFrom),
-                        DateTime.fromFormat(dt3, this.luxonDateFormatFrom)
-                    );
-                    if (diff2.length("minutes") < this.limitProcToFroz) {
-                        this.warnings["prod_to_froz_fail"] = "Processed to Frozen time ("
-                            + diff2.toDuration(['hours', 'minutes']).toHuman()
-                            + ") must be at least " + this.limitProcToFroz + " minutes";
-                    }
-                }
-            },
-            toggleBatchMode: function() {
-                this.batchEnabled = !this.batchEnabled;
-            }
-        }
-    }
-</script>
-
-<style scoped>
-    .alert-warning {
-        border-color: #ffc107 !important;
-    }
-    .alert ul {
-        padding-inline-start: 15px;
-    }
-    .font-size-smaller {
-        font-size: 0.875rem;
-    }
+<style lang="scss" scoped>
+@import "../node_modules/bootstrap/scss/functions";
+@import "../node_modules/bootstrap/scss/variables";
+@import "../node_modules/bootstrap/scss/mixins";
+.batch-mode {
+    font-weight: bold;
+    background-color: $yellow-200 !important;
+}
+.batch-mode input.form-control, .batch-mode span.input-group-text {
+    border-color: var(--bs-warning) !important;
+}
+.alert ul {
+    padding-inline-start: 15px;
+}
+.overlay {
+    position: fixed !important;
+    top: calc(50% - 50px);
+    left: calc(50% - 50px);
+    z-index: 100; /* this seems to work for me but may need to be higher*/
+}
+/* headless dialogs still have styling that needs to be removed */
+.p-dialog-headless{
+    background: unset !important;
+    box-shadow: unset !important;
+    border: unset !important;
+}
+textarea {
+    font-size: .85rem;
+}
 </style>

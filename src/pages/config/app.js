@@ -6,13 +6,14 @@ import App from "./App.vue";
 
 import PrimeVue from "primevue/config";
 import Lara from '@primevue/themes/lara';
-import Dialog from 'primevue/dialog';
-import ConfirmDialog from 'primevue/confirmdialog';
-import ConfirmationService from 'primevue/confirmationservice';
-import Toast from 'primevue/toast';
-import ToastService from 'primevue/toastservice';
+
 import ProgressSpinner from 'primevue/progressspinner';
 import BlockUI from 'primevue/blockui';
+import Dialog from 'primevue/dialog';
+import Popover from 'primevue/popover';
+import Tooltip from 'primevue/tooltip';
+import Toast from "primevue/toast";
+import ToastService from 'primevue/toastservice';
 
 const app = createApp(App);
 
@@ -21,18 +22,14 @@ app.use(PrimeVue, {
         preset: Lara
     }
 });
-app.use(ConfirmationService);
 app.use(ToastService);
 
-// make v-focus usable in all components
-app.directive('focus', {
-    mounted: (el) => el.focus()
-})
+app.directive('tooltip', Tooltip);
 
-app.component("Dialog", Dialog);
-app.component("ConfirmDialog", ConfirmDialog);
-app.component("Toast", Toast);
 app.component("BlockUI", BlockUI);
 app.component("ProgressSpinner", ProgressSpinner);
+app.component("Dialog", Dialog);
+app.component("Popover", Popover);
+app.component("Toast", Toast);
 
 app.mount("#ORCA_SPECIMEN_TRACKING");

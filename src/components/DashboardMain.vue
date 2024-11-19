@@ -1,26 +1,657 @@
-<template>
-    <b-overlay variant="light"
-               blur="50px"
-               spinner-variant="dark"
-               spinner-small
-               opacity="0.95"
-               :show="isOverlayed"
-               rounded="sm">
-        <template #overlay>
-            <loader />
-        </template>
+<script setup>
+import {ref, computed, watch, onMounted, nextTick, provide} from 'vue';
+import { isEmpty, isNotEmpty } from '@primeuix/utils/object';
+import ModuleUtils from '../ModuleUtils';
+import SpecimenForm from './SpecimenForm.vue';
+import SpecimenModal from './SpecimenModal.vue';
+import BoxList from './BoxList.vue';
+import BoxListModal from './BoxListModal.vue';
+import {useConfirm} from "primevue/useconfirm";
+import {useToast} from 'primevue/usetoast';
 
+const confirm = useConfirm();
+const confirmDelete = (specimen) => {
+    confirm.require({
+        group: 'delete',
+        message: specimen.specimen_name,
+        header: 'Deleting Specimen',
+        accept: () => {
+            deleteSpecimen(sample.record_id);
+        }
+    });
+};
+
+const toast = useToast();
+const showToast = (type, summary, detail) => {
+    toast.add({
+        severity: type,
+        summary: summary,
+        detail: detail,
+        life: 3000
+    });
+};
+
+const rx_box_size = /^(?<rows>[0-9]+)x(?<cols>[0-9]+)$/;
+const rx_position = /^(?<row>[A-Z]+)(?<col>[0-9]+)$/;
+
+const plateColors = [
+    'blue',
+    'purple',
+    'pink',
+    'orange',
+    'yellow',
+    'teal',
+    'cyan',
+    'red'
+];
+
+const search_input = ref();
+const search_value = ref();
+const boxes = ref([]);
+const boxListModal = ref();
+
+const specimenForm = ref();
+const specimenModal = ref();
+const isLoading = ref(false);
+const debug = ref();
+const errors = ref([]);
+
+const config = ref({});
+const metadata = ref({});
+const forceReadOnly = ref(false);
+const currentPosition = ref();
+const maxSpecimens = ref();
+
+const showBoxDisplayInfo = ref(false);
+
+/**
+    "A": {
+        "1": {
+            position: "A1",
+            isAvailable: true,
+            participantGroup: null,
+            specimen: null,
+            isSelected: true
+        },
+    },
+*/
+const positions = ref({});
+
+const box = ref();
+const specimens = ref([]);
+
+// WATCHERS
+watch(() => currentPosition.value, async (newPos, oldPos) => {
+    if (oldPos) {
+        oldPos.isSelected = false;
+    }
+    if (newPos) {
+        newPos.isSelected = true;
+    }
+});
+watch(() => box.value, async (newVal, oldVal) => {
+    if (newVal !== null) {
+        search_value.value = null;
+        search_input.value.blur();
+        // specimenForm.value.resetSpecimen();
+        initializeBox();
+    }
+    setUrlState();
+});
+
+// COMPUTED
+const plateRecordId = computed(() => {
+    if (box.value) {
+        return box.value.record_id;
+    } else {
+        return null;
+    }
+});
+const isBoxFull = computed(() => {
+    if (isNotEmpty(maxSpecimens.value) && isNotEmpty(specimens.value)) {
+        return maxSpecimens.value === specimens.value.length;
+    }
+    return false;
+});
+const sortedSpecimens = computed(() => {
+    if (specimens.value != null) {
+        return specimens.value.sort((a, b) => {
+            // parse the positions
+            let x = ModuleUtils.toNumericBoxPosition(a.box_position, rx_position, boxSize.value.cols);
+            let y = ModuleUtils.toNumericBoxPosition(b.box_position, rx_position, boxSize.value.cols);
+            // TODO this is based on row->col box layout. update if support for more layouts is needed
+            return x - y;
+        });
+    }
+    return [];
+});
+const boxSize = computed(() => {
+    if (isNotEmpty(box.value) && isNotEmpty(box.value.box_size)) {
+        let m = rx_box_size.exec(box.value.box_size);
+        if (m !== null) {
+            return {
+                rows: parseInt(m.groups.rows),
+                cols: parseInt(m.groups.cols)
+            };
+        }
+    }
+    return {
+        rows: 0,
+        cols: 0
+    };
+});
+const boxDisplayInfo = computed(() => {
+    if (isEmpty(box.value)) return null;
+    let data = {};
+    for (const fn in config.value['save-state']['box']) {
+        if (config.value['save-state']['box'][fn]['specimen-dashboard']) {
+            let v = box.value[fn];
+            if (isNotEmpty(config.value['fields']['box'][fn]['choices'])) {
+                v = config.value['fields']['box'][fn]['choices'][v];
+            }
+            data[fn] = {
+                label: config.value['fields']['box'][fn]['field_label'],
+                value: v
+            };
+        }
+    }
+    return data;
+});
+const showButtonNewBox = computed(() => {
+    return config.value && config.value.new_box_url;
+});
+const showShipmentDashboardLink = computed(() => {
+    return box.value && box.value.shipment_record_id;
+});
+const isReadOnly = computed(() => {
+    return forceReadOnly.value || isNotEmpty(errors.value);
+});
+const isPlateStatusClosed = computed(() => {
+    return box.value && box.value.box_status === 'closed';
+});
+const canEnterSpecimens = computed(() => {
+    return !isReadOnly.value && !isBoxFull.value && !isPlateStatusClosed.value;
+});
+const canEditSpecimens = computed(() => {
+    return !isReadOnly.value && !isPlateStatusClosed.value;
+});
+const specimenDisplayValue = (f, v) => {
+    if (isNotEmpty(v)) {
+        try {
+            let dv = v;
+            let fm = config.value?.fields?.specimen[f] ?? {};
+            switch (fm['field_type']) {
+                case 'radio':
+                case 'dropdown':
+                    dv = fm['choices'][v];
+                    break;
+                case 'date':
+                case 'datetime':
+                    // reformat to configured format
+                    dv = ModuleUtils.formatDate(v, fm['validation']['type']);
+                    break;
+            }
+            return dv;
+        } catch (e) {}
+    }
+    return v;
+};
+
+// METHODS
+const deleteSpecimen = (id) => {
+    isLoading.value = true;
+    OrcaSpecimenTracking().jsmo.ajax('delete-specimen', {
+        specimen_record_id: id
+    })
+    .then(response => {
+        // success
+        if (response === true) {
+            handleContext();
+            showToast(
+                'success',
+                'Success',
+                'Specimen Deleted Successfully'
+            );
+        } else {
+            // look for possible errors during save result
+            if (isNotEmpty(response?.errors ?? {})) {
+                let errMsg = '';
+                if (Array.isArray(response.errors)) {
+                    errMsg = response.errors.join('\r\n');
+                } else {
+                    errMsg = response.errors;
+                }
+                showToast(
+                    'error',
+                    'Specimen Delete Failed',
+                    errMsg
+                );
+            } else {
+                showToast(
+                    'error',
+                    'Specimen Delete Failed',
+                    'An unknown error occurred while trying to delete the specimen'
+                );
+            }
+        }
+    })
+    .catch(err => {
+        debug.value = err;
+    })
+    .finally(() => isLoading.value = false);
+};
+const initializeBox = () => {
+    let tempPositions = {};
+    let tempCount = 0;
+    currentPosition.value = null;
+    for (let r = 0; r < boxSize.value.rows; r++) {
+        let row = {};
+        let rx = r;
+        let rp = '';
+        let rpi = null; // row prefix index
+        // if the rows exceed the alphabet, we need to attach a prefix
+        if (rx >= config.value.alphabet.length) {
+            rpi = Math.floor(r / config.value.alphabet.length) - 1;
+            rx = r % config.value.alphabet.length;
+            rp = config.value.alphabet[rpi];
+        }
+        const rowKey = `${rp}${config.value.alphabet[rx]}`;
+        for (let c = 0; c < boxSize.value.cols; c++) {
+            const colKey = (c + 1);
+            const isAvailable = isPositionAvailable(r + 1, c + 1);
+            row[colKey] = {
+                position: rowKey + colKey,
+                isAvailable: isAvailable,
+                isSelected: false,
+                specimen: null,
+            };
+            if (isAvailable) {
+                tempCount++;
+            }
+        }
+        tempPositions[rowKey] = row;
+    }
+    maxSpecimens.value = tempCount;
+    positions.value = tempPositions;
+
+    if (isNotEmpty(specimens.value)) {
+        loadSpecimensToBox(specimens.value);
+    }
+    currentPosition.value = getNextAvailablePosition();
+    setTimeout(() => {
+        resetFocus();
+    }, 250);
+};
+const editSpecimen = (record_id) => {
+    // trigger the modal to show and load target specimen
+    if (specimenModal.value) {
+        specimenModal.value.editSpecimen(record_id);
+    }
+};
+const tryDeleteSpecimen = (s) => {
+    confirmDelete(s);
+};
+const resetToList = () => {
+    box.value = null;
+    search_value.value = null;
+    getBoxList();
+};
+const setUrlState = () => {
+    if (isEmpty(box.value)) {
+        // 'id=' will not get removed, so force an arbitrary value so it'll be completely removed
+        ModuleUtils.qs_push("id", false, true);
+        ModuleUtils.qs_remove("id", true);
+    } else {
+        ModuleUtils.qs_push("id", box.value.record_id, true);
+    }
+};
+const resetFocus = () => {
+    if (specimenForm.value) {
+        specimenForm.value.resetFocus();
+    }
+};
+const specimenSaved = (specimen) => {
+    if (specimen) {
+        const index = specimens.value.findIndex(s => s.record_id === specimen.record_id);
+        if (index >= 0) {
+            // was this a move within the existing box?
+            if (specimens.value[index].box_position !== specimen.box_position) {
+                // move the specimen
+                moveSpecimenWithinBox(specimens.value[index].box_position, specimen)
+                // update specimen list
+                specimens.value.splice(index, 1, specimen);
+                // toast!
+                showToast(
+                    'success',
+                    'Move Successful!',
+                    'Specimen moved successfully'
+                );
+            } else {
+                specimens.value.splice(index, 1, specimen);
+                showToast(
+                    'success',
+                    'Edit Successful!',
+                    'Specimen edited successfully'
+                );
+            }
+        } else {
+            specimens.value.push(specimen);
+            showToast(
+                'success',
+                'Save Successful!',
+                'Specimen added to the box'
+            );
+            loadSpecimensToBox([specimen]);
+        }
+        currentPosition.value = getNextAvailablePosition();
+    }
+};
+const positionSelected = (pos) => {
+    if (pos.specimen === null && pos.isAvailable === true) {
+        currentPosition.value = pos;
+    }
+};
+const moveSpecimenWithinBox = (oldPos, specimen) => {
+    let tmpArr = {};
+    let rxOld = rx_position.exec(oldPos);
+    let rxNew = rx_position.exec(specimen.box_position);
+    if (rxOld === null || rxNew === null) {
+        tmpArr['specimen_move'] = `Failed to move specimen from '${oldPos}' to '${specimen.box_position}' - invalid/missing value for Box Position.`;
+    } else {
+        positions.value[rxNew[1]][rxNew[2]].specimen = specimen;
+        positions.value[rxOld[1]][rxOld[2]].specimen = null;
+    }
+    if (isNotEmpty(tmpArr)) {
+        errors.value = Object.assign(errors.value, tmpArr);
+    }
+};
+const loadSpecimensToBox = (specimens) => {
+    let tmpArr = {};
+    for (const s of specimens) {
+        let w = rx_position.exec(s.box_position);
+        if (w === null) {
+            tmpArr[`specimen_load_${s.record_id}`] = `Failed to add specimen '${s.specimen_name}' to the box - invalid/missing value for Box Position.`;
+        } else {
+            const row = w[1];
+            const col = w[2];
+            positions.value[row][col].specimen = s;
+        }
+    }
+    if (isNotEmpty(tmpArr)) {
+        errors.value = Object.assign(errors.value, tmpArr);
+    }
+};
+const positionClass = (pos) => {
+    let wc = [];
+    if (pos.specimen != null) {
+        wc.push(getPositionColorForSpecimen(pos.specimen));
+    } else if (pos.isSelected === true) {
+        wc.push('box-position-selected');
+    } else if (pos.isAvailable === true) {
+        wc.push('box-position-empty');
+    } else {
+        wc.push('box-position-dark-800');
+    }
+    return wc.join(' ');
+};
+const positionTitle = (pos) => {
+    if (pos.specimen !== null) {
+        return pos.specimen.specimen_name
+    } else if (pos.isAvailable !== true) {
+        return "UNAVAILABLE";
+    } else {
+        return "EMPTY";
+    }
+};
+const isPositionAvailable = (row, col) => {
+    return true;
+};
+const getPositionColorForSpecimen = (specimen) => {
+    let colorIndex = 0;
+    const c = plateColors[colorIndex];
+    return `box-position-${c}-800`;
+};
+const getPositionForSpecimen = (specimen) => {
+    let response = {
+        result: false,
+        position: null,
+        errors: {
+            specimen: {
+                name: []
+            }
+        }
+    };
+    try {
+        // all other box types (standard layouts)
+        let pos = getNextAvailablePosition();
+        if (pos !== null) {
+            currentPosition.value = pos;
+            response.result = true;
+            response.position = pos.position;
+        } else {
+            throw `Unable to obtain a valid box position.`;
+        }
+    } catch (e) {
+        response.result = false;
+        response.errors.specimen.specimen_name.push(e);
+    }
+    return response;
+};
+const getNextAvailablePosition = () => {
+    // if no position is currently selected, finds the next open spot
+    // if position is selected, find the next available position in box sequence (i.e. row->col)
+    let targetPosition = "A1";
+    if (currentPosition.value !== null) {
+        if (currentPosition.value.isAvailable === true && currentPosition.value.specimen === null) {
+            return currentPosition.value;
+        } else {
+            // new position based on current context
+            // this will fail, but it's the simplest way to get to the next ordered position
+            targetPosition = currentPosition.value.position;
+        }
+    }
+    // current position doesn't work, so lets iterate!
+    let rx_pos = rx_position.exec(targetPosition);
+    let posRow = config.value.alphabet.indexOf(rx_pos[1]);
+    let posCol = rx_pos[2];
+    // row->col box order
+    // row loop is 0-based, so use '<'
+    for (let r = posRow; r < boxSize.value.rows; r++) {
+        let rAlpha = config.value.alphabet[r];
+        // col loop is 1-based, so use '<='
+        for (let c = posCol; c <= boxSize.value.cols; c++) {
+            let pos = positions.value[rAlpha][c];
+            if (pos.isAvailable === true && pos.specimen === null) {
+                // if we found one, return it
+                return pos;
+            }
+        }
+        // if we get here, we're wrapping to the next row
+        // reset column to 1
+        posCol = 1;
+    }
+    return null;
+};
+const gotoShipmentDashboard = () => {
+    window.location.href = `${config.value.shipment_dashboard_base_url}&id=${box.value.shipment_record_id}`;
+};
+const gotoNewBoxURL = () => {
+    window.location.href = config.value.new_box_url;
+}
+
+const boxSelected = (e) => {
+    if (isNotEmpty(e.data)) {
+        getBox(e.data.record_id);
+    } else {
+        showToast('error', 'Error', 'An unexpected error occurred while trying to select a box.');
+    }
+};
+const handleContext = () => {
+    let id = ModuleUtils.qs_get('id');
+    if (id && `${id}`.length > 0) {
+        // get the box
+        getBox(id);
+    } else {
+        // get the box list
+        getBoxList();
+    }
+};
+const getBox = (id) => {
+    isLoading.value = true;
+    OrcaSpecimenTracking().jsmo.ajax('get-box', {
+        id: id
+    })
+    .then((response) => {
+        if (isNotEmpty(response.errors)) {
+            if (Array.isArray(response.errors)) {
+                errors.value.push(...response.errors);
+            } else {
+                errors.value.push(response.errors);
+            }
+        } else {
+            config.value.box_record_home_url = response.config?.box_record_home_url;
+            // ensure specimens is set first, since box watch depends on them
+            specimens.value = response.specimens ?? [];
+            box.value = response.box;
+        }
+    })
+    .catch((err) => {
+        debug.value = err;
+    })
+    .finally(() => {
+        isLoading.value = false;
+    });
+};
+const getBoxList = () => {
+    isLoading.value = true;
+    boxes.value = null;
+    OrcaSpecimenTracking().jsmo.ajax('get-box-list', {
+        // no parameters
+    })
+    .then((response) => {
+        if (isNotEmpty(response.errors)) {
+            if (Array.isArray(response.errors)) {
+                errors.value.push(...response.errors);
+            } else {
+                errors.value.push(response.errors);
+            }
+        } else {
+            boxes.value = response.boxes;
+        }
+    })
+    .catch((err) => {
+        debug.value = err;
+    })
+    .finally(() => {
+        isLoading.value = false;
+    });
+};
+const search = async (e) => {
+    // first automatically trim the search value
+    if (isNotEmpty(search_value.value)) {
+        search_value.value = search_value.value.trim();
+    }
+    isLoading.value = true;
+    OrcaSpecimenTracking().jsmo.ajax('search-box-list', {
+        search: search_value.value
+    })
+    .then(response => {
+        // look for possible errors during save result
+        if (isNotEmpty(response.errors)) {
+            if (Array.isArray(response.errors)) {
+                errors.value.push(...response.errors);
+            } else {
+                errors.value.push(response.errors);
+            }
+        } else {
+            // show the modal with the search value and results
+            boxListModal.value.show(search_value.value, response.boxes);
+            // debug
+            // debug.value = response;
+        }
+    })
+    .catch(err => {
+        debug.value = err;
+    })
+    .finally(() => {
+        isLoading.value = false;
+    });
+};
+const initializeDashboard = async () => {
+    isLoading.value = true;
+    OrcaSpecimenTracking().jsmo.ajax('initialize-box-dashboard', {})
+    .then(response => {
+        // look for possible errors during save result
+        if (isNotEmpty(response.errors)) {
+            if (Array.isArray(response.errors)) {
+                errors.value.push(...response.errors);
+            } else {
+                errors.value.push(response.errors);
+            }
+            isLoading.value = false;
+        } else {
+            if (response) {
+                // success
+                config.value = response.config;
+                handleContext();
+            } else {
+                debug.value = response;
+                isLoading.value = false;
+            }
+        }
+    })
+    .catch(err => {
+        debug.value = err;
+        isLoading.value = false;
+    });
+};
+
+provide('getPositionForSpecimen', getPositionForSpecimen);
+
+onMounted(() => {
+    nextTick(() => {
+        initializeDashboard();
+    });
+});
+</script>
+
+<template>
+    <BlockUI :blocked="isLoading">
         <div class="projhdr">
-            <i class="fas fa-vials text-dark"></i>&nbsp;Sample Entry Dashboard
-            <template v-if="config.box_record_home_url != null">
-                <span>&nbsp;|&nbsp;</span><a :href="config.box_record_home_url" class="text-primary ml-1"><i class="fas fa-share"></i>&nbsp;Record Home</a>
+            <i class="fas fa-vials text-dark"></i>&nbsp;Specimen Entry Dashboard
+            <template v-if="config.box_record_home_url">
+                <span>&nbsp;|&nbsp;</span>
+                <a :href="config.box_record_home_url" class="text-primary ml-1 text-decoration-none">
+                    <i class="fas fa-share"></i>&nbsp;Record Home
+                </a>
             </template>
             <template v-if="showShipmentDashboardLink">
-                <span>&nbsp;|&nbsp;</span><a href="javascript:void(0)" @click.prevent="gotoShipmentDashboard()" class="text-primary ml-1"><i class="fas fa-truck"></i>&nbsp;Shipment Dashboard</a>
+                <span>&nbsp;|&nbsp;</span>
+                <a href="javascript:void(0)" @click.prevent="gotoShipmentDashboard()" class="text-primary ml-1 text-decoration-none">
+                    <i class="fas fa-truck"></i>&nbsp;Shipment Dashboard
+                </a>
             </template>
         </div>
 
-        <template v-if="!isObjectEmpty(errors)">
+        <div class="row">
+            <div class="col-xl-4 col-lg-6">
+                <div class="input-group input-group-sm mb-3">
+                    <input ref="search_input" type="text" class="form-control" placeholder="Search Anything!" v-model="search_value" @keyup.enter="search" v-focus />
+                    <button type="button" title="Search Result" class="btn btn-primary" @click="search">
+                        <i class="fas fa-search"></i>
+                    </button>
+                    <template v-if="box">
+                        <!-- "back to list" button -->
+                        <button type="button" class="btn btn-outline-primary" @click="resetToList"><i class="fas fa-list"></i>&nbsp;List</button>
+                    </template>
+                    <template v-if="showButtonNewBox">
+                        <button type="button" class="btn btn-outline-success"@click="gotoNewBoxURL"><i class="fas fa-plus"></i>&nbsp;New</button>
+                    </template>
+                </div>
+            </div>
+        </div>
+
+        <template v-if="isNotEmpty(errors)">
             <div class="alert alert-danger p-4">
                 <h1 class="display-4">Critical Errors Exist!</h1>
                 <p class="lead mb-0">This dashboard has been disabled until all critical errors have been resolved.</p>
@@ -34,1008 +665,304 @@
         </template>
 
         <!-- MAIN CONTENT AREA -->
-        <div class="card">
-            <div class="card-header">
-                <div class="row">
-                    <div class="col">
-                        <div class="mb-2">
-                            <label class="col-form-label">Selected Box</label>
-                            <template v-if="showButtonNewBox">
-                                <a class="btn btn-xs btn-success text-light" :href="config.new_plate_url"><i class="fas fa-plus"></i>&nbsp;New</a>
-                            </template>
-                            <template v-if="showButtonSearch">
-                                <button class="btn btn-xs btn-primary" @click="togglePlateSearch"><i class="fas fa-search"></i>&nbsp;Search</button>
-                                <input type="text" :value="plate.box_name" class="form-control" readonly="readonly" />
-                            </template>
-                            <template v-if="showButtonCancel">
-                                <button class="btn btn-xs btn-danger" @click="togglePlateSearch"><i class="fas fa-times"></i>&nbsp;Cancel</button>
-                            </template>
-                            <b-form id="form_plate_search" @submit.prevent v-if="showPlateSearch">
-                                <b-form-input
-                                        id="plate_search_input"
-                                        ref="plate_search_input"
-                                        autocomplete="off"
-                                        @keyup.enter="trySearchPlate"
-                                        @blur="trySearchPlate"
-                                        v-model="plate_search"
-                                        :state="v$.plate_search.$error ? false : null"
-                                        placeholder="Scan or Type the Box Name"
-                                ></b-form-input>
-                                <b-alert variant="danger" class="mt-1 mb-0 px-3 py-2"
-                                         v-if="v$.plate_search.$error"
-                                         show
-                                >
-                                    <strong>Validation Error:</strong>
-                                    <ul class="mb-0">
-                                        <li v-for="error of v$.plate_search.$errors" :key="error.$uid">{{ error.$message }}</li>
-                                    </ul>
-                                </b-alert>
-                            </b-form>
-                        </div>
-                        <template v-if="plate !== null && canEnterSpecimens">
-                            <specimen-form
-                                    ref="specimenAddForm"
+        <template v-if="box">
+            <div class="card">
+                <div class="card-header">
+                    <div class="row">
+                        <div class="col">
+                            <div class="mb-2">
+                                <div class="d-flex gap-2 align-items-center">
+                                    <label class="col-form-label">Box Name</label>
+                                </div>
+                                <input type="text" :value="box.box_name" class="form-control" disabled="disabled"/>
+                            </div>
+                            <template v-if="canEnterSpecimens">
+                                <specimen-form
+                                    ref="specimenForm"
                                     mode="new"
                                     :config="config"
                                     :box_record_id="plateRecordId"
-                                    :box_info="plate"
+                                    :box_position="currentPosition"
+                                    :box_info="box"
                                     @specimenSaved="specimenSaved"
-                            ></specimen-form>
-                        </template>
-                        <b-alert variant="warning" class="border border-warning mt-3" v-if="isPlateFull" show>Specimen Entry Disabled!  The box is full.</b-alert>
-                        <b-alert variant="warning" class="border border-warning mt-3" v-if="isPlateStatusClosed" show><strong>NOTICE:</strong> This box is CLOSED, and as such, has been put into a read-only state. </b-alert>
-                    </div>
-                    <template v-if="plate && config && config.plate_size && config.alphabet">
-                        <div class="col-auto border-left border-start">
-                            <label class="col-form-label">Box Preview</label>
-                            <div class="plate-preview border border-dark" v-bind:class="[ plateClass() ]">
-                                <div class="row text-center font-weight-bold bg-dark text-light no-gutters g-0">
-                                    <div class="col-header py-2">#</div>
-                                    <template v-for="col in config.plate_size.col">
-                                        <div class="col-header py-2">{{ col }}</div>
-                                    </template>
-                                </div>
-                                <template v-for="(row, rowKey) in wells">
-                                    <div class="row no-gutters g-0">
-                                        <div class="row-header bg-dark text-light font-weight-bold py-2">
-                                            <span>{{ rowKey }}</span>
-                                        </div>
-                                        <template v-for="(well, colKey) in row">
-                                            <div class="plate-well px-0"
-                                                 v-bind:class="[ wellClass(well) ]"
-                                                 :title="wellTitle(well)"
-                                                 :id="'well-' + well.wellPosition"
-                                                 :data-well-label="well.wellPosition"
-                                                 v-on:click="wellSelected(well)"
-                                            >
-                                            </div>
-                                        </template>
-                                    </div>
-                                </template>
+                                ></specimen-form>
+                            </template>
+                            <div class="alert alert-warning border border-warning mt-3" v-if="isBoxFull">Specimen Entry
+                                Disabled! The box is full.
+                            </div>
+                            <div class="alert alert-warning border border-warning mt-3" v-if="isPlateStatusClosed"><strong>NOTICE:</strong>
+                                This box is CLOSED, and as such, has been put into a read-only state.
                             </div>
                         </div>
-                    </template>
+                        <div class="col-auto mt-2">
+                            <template v-if="isNotEmpty(boxDisplayInfo)">
+                                <div class="d-flex align-items-center">
+                                    <strong>Box Information</strong>
+                                    <button type="button" class="ms-auto btn btn-primary btn-xs"
+                                            @click="() => showBoxDisplayInfo = !showBoxDisplayInfo">
+                                        <template v-if="showBoxDisplayInfo">
+                                            <i class="fas fa-chevron-up"></i>&nbsp;Collapse
+                                        </template>
+                                        <template v-else>
+                                            <i class="fas fa-chevron-down"></i>&nbsp;Expand
+                                        </template>
+                                    </button>
+                                </div>
+                                <hr class="mt-1 mb-0" />
+                                <table v-if="showBoxDisplayInfo" class="table table-striped">
+                                    <tbody>
+                                    <tr v-for="(v, k) in boxDisplayInfo">
+                                        <th>{{ v['label'] }}</th>
+                                        <td>{{ v['value'] }}</td>
+                                    </tr>
+                                    </tbody>
+                                </table>
+                            </template>
+                            <template v-if="boxSize && config.alphabet">
+                                <label class="col-form-label">Box Preview<span v-if="currentPosition">&nbsp;(<strong>{{ currentPosition.position }}</strong>)</span></label>
+                                <div class="container box-preview border border-dark selectable">
+                                    <div class="box-preview-header row text-center font-weight-bold bg-dark text-light">
+                                        <div class="col-header py-2 px-0">#</div>
+                                        <template v-for="col in boxSize.cols">
+                                            <div class="col-header py-2 px-0">{{ col }}</div>
+                                        </template>
+                                    </div>
+                                    <div class="row">
+                                        <div class="box-preview-rows col overflow-y-auto g-0">
+                                            <template v-for="(row, rowKey) in positions">
+                                                <div class="d-flex">
+                                                    <div class="row-header bg-dark text-light font-weight-bold d-flex align-items-center justify-content-center">
+                                                        <span>{{ rowKey }}</span>
+                                                    </div>
+                                                    <template v-for="(pos, colKey) in row">
+                                                        <div class="box-position px-0"
+                                                             :class="[ positionClass(pos) ]"
+                                                             :title="positionTitle(pos)"
+                                                             :id="'position-' + pos.position"
+                                                             :data-position-label="pos.position"
+                                                             @click="positionSelected(pos)"
+                                                        >
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
                 </div>
-            </div>
-            <div class="card-body">
-                <div>
-                    <input v-if="plate != null" type="hidden" name="plate[record_id]" :value="plateRecordId" />
-                    <table id="specimen_table" class="table mb-0">
-                        <thead>
-                        <tr>
-                            <th scope="col" class="text-center">x</th>
-                            <th scope="col">Full Name</th>
-                            <th scope="col">Pos</th>
-                            <th scope="col">Collection</th>
-                            <th scope="col">Processed</th>
-                            <th scope="col">Frozen</th>
-                            <th scope="col">{{ volumeLabel }}</th>
-                            <th scope="col">MHN</th>
-                        </tr>
-                        </thead>
-                        <tbody>
-                        <template v-for="(s, index) in sortedSpecimens">
-                            <tr :key="s.record_id">
+                <div class="card-body">
+                    <div v-if="config && config['save-state'] && config['fields']">
+                        <table id="dashboard_table" class="table mb-0">
+                            <thead>
+                            <tr>
                                 <!-- actions -->
-                                <td class="text-center">
-                                    <button v-if="canEditSpecimens" type="button" class="btn btn-sm btn-link py-0" @click="editSpecimen(s.record_id)">
-                                        <i class="fas fa-edit" style="display: inline;"></i>
-                                    </button>
-                                    <button v-if="canEditSpecimens" type="button" class="btn btn-sm btn-link text-danger py-0" @click="tryDeleteSpecimen(s)">
-                                        <i class="fas fa-times" style="display: inline;"></i>
-                                    </button>
-                                </td>
+                                <th v-if="canEditSpecimens" class="text-center">Actions</th>
                                 <!-- name -->
-                                <th scope="row" :data-sort="s.name">
-                                    {{ s.name }}
-                                </th>
+                                <th>{{ config['fields']['specimen']['specimen_name']['field_label'] }}</th>
                                 <!-- box_position -->
-                                <td :data-sort="s.box_position">
-                                    {{ s.box_position }}
-                                </td>
-                                <!-- date_time_collected -->
-                                <td>
-                                    {{ dateTimeFormat(s.date_time_collected) }}
-                                </td>
-                                <!-- date_time_processed -->
-                                <td>
-                                    {{ dateTimeFormat(s.date_time_processed) }}
-                                </td>
-                                <!-- date_time_frozen -->
-                                <td>
-                                    {{ dateTimeFormat(s.date_time_frozen) }}
-                                </td>
-                                <!-- volume -->
-                                <td>
-                                    {{ s.volume }}
-                                </td>
-                                <!-- mhn -->
-                                <td>
-                                    {{ s.mhn }}
-                                </td>
+                                <th>{{ config['fields']['specimen']['box_position']['field_label'] }}</th>
+                                <!-- configured fields -->
+                                <template v-for="(fv, fk) in config['save-state']['specimen']">
+                                    <th v-if="!config['fields']['specimen'][fk]['config']['specimen-list']['required'] && fv['specimen-list']">{{ config['fields']['specimen'][fk]['field_label'] }}</th>
+                                </template>
                             </tr>
-                        </template>
-                        </tbody>
-                    </table>
+                            </thead>
+                            <tbody>
+                            <template v-for="(s, index) in sortedSpecimens" :key="s.record_id">
+                                <tr>
+                                    <!-- actions -->
+                                    <td class="text-center" v-if="canEditSpecimens">
+                                        <button type="button" class="btn btn-sm btn-link py-0"
+                                                @click="editSpecimen(s.record_id)">
+                                            <i class="fas fa-edit" style="display: inline;"></i>
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-link text-danger py-0"
+                                                @click="tryDeleteSpecimen(s)">
+                                            <i class="fas fa-times" style="display: inline;"></i>
+                                        </button>
+                                    </td>
+                                    <!-- name -->
+                                    <th scope="row" :data-sort="s.specimen_name">
+                                        {{ s.specimen_name }}
+                                    </th>
+                                    <!-- box_position -->
+                                    <td :data-sort="s.box_position">
+                                        {{ s.box_position }}
+                                    </td>
+                                    <!-- configured fields -->
+                                    <template v-for="(fv, fk) in config['save-state']['specimen']">
+                                        <td v-if="!config['fields']['specimen'][fk]['config']['specimen-list']['required'] && fv['specimen-list']">{{ specimenDisplayValue(fk, s[fk]) }}</td>
+                                    </template>
+                                </tr>
+                            </template>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
-        </div>
-
-        <template v-if="debugMsg != null">
-            <pre class="well">{{ debugOutput }}</pre>
+        </template>
+        <template v-else>
+            <div class="card">
+                <div class="card-header">
+                    <span>This dashboard shows you all <strong>Available</strong> boxes.</span>
+                    <hr class="my-2">
+                    <ul class="mb-0">
+                        <li>Select a box to see its full details and take action.</li>
+                        <li>Boxes in a <strong>Closed</strong> status will not appear in this list.</li>
+                    </ul>
+                    <hr class="my-2">
+                    <span>To search for a box that is <strong>not</strong> in this list, use the search at the top of this page.</span>
+                </div>
+                <div class="card-body px-3 py-1">
+                    <box-list :boxes="boxes" @selected="boxSelected"></box-list>
+                </div>
+            </div>
         </template>
 
+        <div v-if="debug" class="mt-3">
+            <pre>{{ debug }}</pre>
+        </div>
+        <Toast position="bottom-right">
+            <template #message="slotProps">
+                <div class="p-toast-message-text" data-pc-section="messagetext">
+                    <span v-if="isNotEmpty(slotProps.message.summary)" class="p-toast-summary" data-pc-section="summary" v-html="slotProps.message.summary"></span>
+                    <div v-if="isNotEmpty(slotProps.message.detail)" class="p-toast-detail" data-pc-section="detail" v-html="slotProps.message.detail"></div>
+                </div>
+            </template>
+        </Toast>
+        <ConfirmDialog group="delete">
+            <template #container="{ message, acceptCallback, rejectCallback }">
+                <div class="card">
+                    <div class="card-header bg-danger">
+                        <h5 class="text-light">{{ message.header }}</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="text-center"><h5 class="lead">You are about to delete the following specimen:</h5>
+                            <hr>
+                            <h5 class="lead text-danger text-monospace font-weight-bold">[{{ message.message }}]</h5>
+                            <hr>
+                            <div class="lead text-danger mb-0"><i class="fas fa-exclamation-triangle"></i><span
+                                class="mx-3">This action cannot be undone!</span><i
+                                class="fas fa-exclamation-triangle"></i></div>
+                        </div>
+                    </div>
+                    <div class="card-footer bg-danger-subtle">
+                        <div class="d-flex gap-2 justify-content-end">
+                            <button class="btn btn-outline-dark" label="Cancel" outlined @click="rejectCallback">
+                                Cancel
+                            </button>
+                            <button class="btn btn-danger text-uppercase" label="Confirm" @click="acceptCallback">
+                                DELETE
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </template>
+        </ConfirmDialog>
         <specimen-modal
-                ref="specimenModal"
-                :config="config"
-                :box_record_id="plateRecordId"
-                :box_info="plate"
-                @specimenSaved="specimenSaved"
+            ref="specimenModal"
+            :config="config"
+            :box_record_id="plateRecordId"
+            :box_info="box"
+            @specimenSaved="specimenSaved"
         ></specimen-modal>
-    </b-overlay>
+        <box-list-modal ref="boxListModal" @selected="boxSelected"></box-list-modal>
+        <ProgressSpinner v-show="isLoading" class="overlay"/>
+    </BlockUI>
 </template>
 
-<script>
-    // QS
-    import qs from 'qs';
-    // DatePicker
-    import DatePicker from 'vue2-datepicker';
-    import 'vue2-datepicker/index.css';
-    // Luxon
-    import { DateTime } from 'luxon';
-    // Vuelidate
-    import useVuelidate from '@vuelidate/core'
-    import {
-        helpers
-    } from '@vuelidate/validators'
-    // Loader
-    import loader from '../loader.vue'
-    // local components
-    import SpecimenForm from './SpecimenForm'
-    import SpecimenModal from './SpecimenModal'
+<style lang="scss">
+@import "../node_modules/bootstrap/scss/functions";
+@import "../node_modules/bootstrap/scss/variables";
+@import "../node_modules/bootstrap/scss/mixins";
+@import "../node_modules/bootstrap/scss/alert";
 
-    export default {
-        setup: () => ({v$: useVuelidate({$lazy: true, $autoDirty: true})}),
-        components: {
-            qs,
-            DatePicker,
-            loader,
-            SpecimenForm,
-            SpecimenModal
-        },
-        validations() {
-            return {
-                plate_search: {
-                    regexMatch: helpers.withMessage('Value provided does not match the required nomenclature!',
-                        (value) => value === null || value.match(this.config.box_name_regex)
-                    )
-                }
-            }
-        },
-        data() {
-            return {
-                rx_well_position: /^(?<row>[A-Z])(?<col>[0-99])$/,
-                luxonDateFormatFrom: 'yyyy-MM-dd HH:mm',
-                show_plate_search: false,
-                plate_search: null,
-                plate: null,
-                specimens: [],
-                config: {},
-                errors: {},
-                debugMsg: null,
-                forceReadOnly: false,
-                isOverlayed: false,
-                isPlateFull: false,
-                currentWell: null,
-                maxSpecimens: null,
-                wells: {
-                    /*
-                    "A": {
-                        "1": {
-                            wellPosition: "A1",
-                            isAvailable: true,
-                            participantGroup: null,
-                            specimen: null,
-                            isSelected: true
-                        },
-                    },
-                    */
-                },
-                participantMap: {
-                    /*
-                    "1234": {
-                        "participantGroup": 1
-                    }
-                    */
-                },
-                plateColors: [
-                    'blue',
-                    // 'indigo',
-                    'purple',
-                    'pink',
-                    'orange',
-                    'yellow',
-                    'teal',
-                    'cyan',
-                    'red',
-                    // 'green',
-                ]
-            }
-        },
-        watch: {
-            currentWell: function (newWell, oldWell) {
-                if (oldWell) {
-                    oldWell.isSelected = false;
-                }
-                if (newWell) {
-                    newWell.isSelected = true;
-                }
-            },
-            specimens: function (newVal, oldVal) {
-                // debug
-                // console.log('old: ' + oldVal.length + ', new: ' + newVal.length + ', specimens: ' + this.specimens.length);
-                this.validateSpecimens();
-            }
-        },
-        computed: {
-            plateRecordId: function() {
-                if (this.plate) {
-                    return this.plate.record_id;
-                }
-                else {
-                    return null;
-                }
-            },
-            debugOutput: function() {
-                return JSON.stringify(this.debugMsg, null, '\t');
-            },
-            sortedSpecimens: function() {
-                if (this.specimens != null) {
-                    if (this.isTemporaryBoxType(this.plate)) {
-                        return this.specimens.sort((a, b) => {
-                            const a_pos = this.rx_well_position.exec(a.box_position);
-                            const b_pos = this.rx_well_position.exec(b.box_position);
-                            const a_grp = this.participantMap[a.name_parsed.participant_id].participantGroup;
-                            const b_grp = this.participantMap[b.name_parsed.participant_id].participantGroup;
-                            let a_weight = a_grp * 10000;
-                            let b_weight = b_grp * 10000;
-                            a_weight += parseInt(a_pos[2]) * 100;
-                            b_weight += parseInt(b_pos[2]) * 100;
-                            a_weight += this.config.alphabet.indexOf(a_pos[1]);
-                            b_weight += this.config.alphabet.indexOf(b_pos[1]);
-                            if (a_weight > b_weight) { return 1; }
-                            if (a_weight < b_weight) { return -1; }
-                            return 0;
-                        });
-                    } else {
-                        return this.specimens.sort((a, b) => {
-                            // TODO this is based on row->col box layout. update if support for more layouts is needed
-                            if (a.box_position < b.box_position) { return -1; }
-                            if (a.box_position > b.box_position) { return 1; }
-                            return 0;
-                        });
-                    }
-                }
-                return [];
-            },
-            showButtonNewBox: function() {
-                return this.config && this.config.new_plate_url;
-            },
-            showButtonSearch: function() {
-                return this.plate && !this.show_plate_search;
-            },
-            showButtonCancel: function() {
-                return this.plate && this.show_plate_search;
-            },
-            showPlateSearch: function() {
-                return !this.plate || this.show_plate_search;
-            },
-            showShipmentDashboardLink: function() {
-                return this.plate && this.plate.shipment_record_id;
-            },
-            isReadOnly: function() {
-                return this.forceReadOnly || !this.isObjectEmpty(this.errors);
-            },
-            isPlateStatusClosed: function() {
-                return this.plate && this.plate.box_status === 'closed';
-            },
-            canEnterSpecimens: function() {
-                return !this.isReadOnly && !this.isPlateFull && !this.isPlateStatusClosed;
-            },
-            canEditSpecimens: function() {
-                return !this.isReadOnly && !this.isPlateStatusClosed;
-            },
-            volumeLabel: function() {
-                if (this.plate && this.plate.sample_type) {
-                    // make this check case-insensitive
-                    let label = this.config['sample_type_units'][this.plate.sample_type.toLowerCase()];
-                    if (label) {
-                        return label;
-                    }
-                }
-                return 'Volume';
-            },
-        },
-        methods: {
-            async post(action, data, callback, doOverlay = true) {
-                if (doOverlay === true) {
-                    this.isOverlayed = true;
-                }
-                data = Object.assign({
-                    redcap_csrf_token: OrcaSpecimenTracking().redcap_csrf_token,
-                    action: action
-                }, data);
-                this.axios({
-                    url: OrcaSpecimenTracking().url,
-                    method: 'post',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    data: qs.stringify(data)
-                })
-                    .then(response => {
-                        if (response.data) {
-                            callback(response.data);
-                        }
-                    })
-                    .catch(e => {
-                        let errorMsg = 'An unknown error occurred';
-                        if (e.response && e.response.data) {
-                            errorMsg = e.response.data;
-                        }
-                        this.toast(
-                            errorMsg,
-                            'Action Failed',
-                            'danger'
-                        );
-                    })
-                    .finally(() => {
-                        if (doOverlay === true) {
-                            setTimeout(() => {
-                                this.isOverlayed = false;
-                            }, 250);
-                        }
-                    });
-            },
-            async searchPlate(search_value) {
-                this.isOverlayed = true;
-                this.focusOverride = true;
-                if (this.$refs.specimenAddForm) {
-                    this.$refs.specimenAddForm.resetSpecimen();
-                }
-                const data = {
-                    redcap_csrf_token: OrcaSpecimenTracking().redcap_csrf_token,
-                    action: 'search-plate',
-                    search_value: search_value
-                };
-                this.axios({
-                    url: OrcaSpecimenTracking().url,
-                    method: 'post',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    data: qs.stringify(data)
-                })
-                .then(response => {
-                    if (response.data) {
-                        // clear search value
-                        this.plate_search = null;
-                        // set plate and specimen values
-                        this.plate = response.data.plate ?? null;
-                        this.specimens = response.data.specimens ?? [];
-
-                        this.initializePlate();
-                    }
-                })
-                .catch(e => {
-                    let errorMsg = 'An unknown error occurred';
-                    if (e.response.data) {
-                        errorMsg = e.response.data;
-                    }
-                    this.toast(
-                        errorMsg,
-                        'Box Search Failed',
-                        'danger'
-                    );
-                })
-                .finally(() => {
-                    this.show_plate_search = this.plate === null;
-                    this.setUrlState();
-                    setTimeout(() => {
-                        this.isOverlayed = false;
-                        this.focusOverride = false;
-                        this.resetFocus();
-                    }, 250);
-                });
-            },
-            initializePlate: function() {
-                let wells = {};
-                let maxSpecimens = 0;
-                this.currentWell = null;
-                for (let r = 0; r < this.config.plate_size.row; r++) {
-                    let row = {};
-                    const rowKey = this.config.alphabet[r];
-                    for (let c = 0; c < this.config.plate_size.col; c++) {
-                        const colKey = (c + 1);
-                        const isAvailable = this.isWellAvailable(r+1, c+1);
-                        row[colKey] = {
-                            wellPosition: rowKey + colKey,
-                            isAvailable: isAvailable,
-                            isSelected: false,
-                            specimen: null,
-                        };
-                        if (isAvailable) {
-                            maxSpecimens++;
-                        }
-                        if (this.isTemporaryBoxType(this.plate)) {
-                            const participantsPerRow = Math.floor(this.config.plate_size.col / this.config.num_visits);
-                            const groupOffsetRow = Math.floor(r / this.config.num_specimens) * participantsPerRow;
-                            if (isAvailable) {
-                                const groupOffsetCol = Math.floor(c / this.config.num_visits);
-                                row[colKey].participantGroup = (groupOffsetRow + groupOffsetCol) + 1;
-                            }
-                        }
-                    }
-                    wells[rowKey] = row;
-                }
-                this.maxSpecimens = maxSpecimens;
-                this.wells = Object.assign({}, wells);
-
-                this.loadSpecimensToPlate(this.specimens ?? []);
-                this.currentWell = this.getNextAvailableWell();
-            },
-            async initializeDashboard() {
-                this.isOverlayed = true;
-                this.axios({
-                    url: OrcaSpecimenTracking().url,
-                    params: {
-                        action: 'initialize-box-dashboard',
-                        id: this.qs_get('id')
-                    }
-                })
-                .then(response => {
-                    this.config = response.data.config;
-                    this.plate = response.data.plate ?? null;
-                    this.specimens = response.data.specimens ?? [];
-
-                    this.initializePlate();
-                })
-                .catch(e => {
-                    let errorMsg = 'An unknown error occurred';
-                    if (e.response.data) {
-                        errorMsg = e.response.data;
-                    }
-                    if (typeof errorMsg === 'string') {
-                        errorMsg = [ errorMsg ];
-                    }
-                    this.errors = Object.assign(this.errors, errorMsg);
-                })
-                .finally(() => {
-                    this.show_plate_search = this.plate === null;
-                    this.setUrlState();
-                    setTimeout(() => {
-                        this.isOverlayed = false;
-                        this.resetFocus();
-                    }, 250);
-                    // debug
-                    // this.debugMsg = this.config;
-                });
-            },
-            editSpecimen: function(record_id) {
-                // trigger the modal to show and load target specimen
-                if (this.$refs.specimenModal) {
-                    this.$refs.specimenModal.editSpecimen(record_id);
-                }
-            },
-            async deleteSpecimenCallback(data) {
-                if (data === true) {
-                    await this.initializeDashboard();
-                    this.toast(
-                        'Specimen Deleted Successfully',
-                        'Success',
-                        'success'
-                    );
-                } else if (typeof(data) === 'string') {
-                    this.toast(
-                        data,
-                        'Specimen Delete Failed',
-                        'danger'
-                    );
-                }
-            },
-            tryDeleteSpecimen: function(s) {
-                const h = this.$createElement;
-                const ack = h('div', { class: [ 'text-center' ] }, [
-                    h('h5', { class: [ 'lead' ] }, 'You are about to delete the following specimen:'),
-                    h('hr'),
-                    h('h5', { class: [ 'lead', 'text-danger', 'text-monospace', 'font-weight-bold' ] }, `[${s.name}]`),
-                    h('hr'),
-                    h('div', { class: [ 'lead', 'text-danger', 'mb-0' ] }, [
-                        h('i', { class: [ 'fas', 'fa-exclamation-triangle' ] }),
-                        h('span', { class: [ 'mx-3' ] }, 'This action cannot be undone!'),
-                        h('i', { class: [ 'fas', 'fa-exclamation-triangle' ] }),
-                    ])
-                ]);
-                this.$bvModal.msgBoxConfirm([ack], {
-                    title: 'Deleting Specimen',
-                    headerBgVariant: 'danger',
-                    headerTextVariant: 'light',
-                    footerClass: 'alert-danger',
-                    footerBorderVariant: 'danger',
-                    okTitle: 'DELETE',
-                    okVariant: 'danger',
-                    cancelTitle: 'Cancel',
-                    centered: true
-                })
-                .then(value => {
-                    if (value === true) {
-                        this.post('delete-specimen', { specimen_record_id: s.record_id }, this.deleteSpecimenCallback);
-                    }
-                })
-                .catch(e => {
-                    let errorMsg = 'An unknown error occurred';
-                    if (e.response.data) {
-                        errorMsg = e.response.data;
-                    }
-                    this.toast(
-                        errorMsg,
-                        'Add Specimen Failed',
-                        'danger'
-                    );
-                });
-            },
-            trySearchPlate: function(e) {
-                // validate against nomenclature
-                if (this.plate_search && !this.v$.plate_search.$error) {
-                    this.searchPlate(this.plate_search);
-                }
-            },
-            setUrlState: function() {
-                if (this.plate == null) {
-                    // 'id=' will not get removed, so force an arbitrary value so it'll be completely removed
-                    this.qs_push("id", false, true);
-                    this.qs_remove("id", true);
-                } else {
-                    this.qs_push("id", this.plateRecordId, true);
-                }
-            },
-            togglePlateSearch: function() {
-                this.plate_search = null;
-                this.show_plate_search = !this.show_plate_search;
-                setTimeout(() => {
-                    this.resetFocus();
-                }, 100);
-            },
-            resetFocus: function() {
-                if (this.show_plate_search === true) {
-                    this.focusElement('plate_search_input');
-                } else {
-                    if (this.$refs.specimenAddForm) {
-                        this.$refs.specimenAddForm.resetFocus();
-                    }
-                }
-            },
-            focusElement: function(refName) {
-                if (!this.focusOverride && this.$refs[refName]) {
-                    this.$nextTick(() => {
-                        this.$refs[refName].focus();
-                    });
-                }
-            },
-            specimenSaved: function(specimen) {
-                if (specimen) {
-                    const index = this.specimens.findIndex(s => s.record_id === specimen.record_id);
-                    if (index >= 0) {
-                        // was this a move within the existing box?
-                        if (this.specimens[index].box_position !== specimen.box_position) {
-                            // move the specimen
-                            this.moveSpecimenWithinPlate(this.specimens[index].box_position, specimen)
-                            // update specimen list
-                            this.specimens.splice(index, 1, specimen);
-                            // toast!
-                            this.toast(
-                                'Specimen moved successfully',
-                                'Move Successful!',
-                                'success'
-                            );
-                        } else {
-                            this.specimens.splice(index, 1, specimen);
-                            this.toast(
-                                'Specimen edited successfully',
-                                'Edit Successful!',
-                                'success'
-                            );
-                        }
-                    } else {
-                        this.specimens.push(specimen);
-                        this.toast(
-                            'Specimen added to the box',
-                            'Save Successful!',
-                            'success'
-                        );
-                        this.loadSpecimensToPlate([ specimen ]);
-                        this.currentWell = this.getNextAvailableWell();
-                    }
-                }
-            },
-            wellSelected: function(well) {
-                if (!this.isTemporaryBoxType(this.plate)) {
-                    if (well.specimen === null && well.isAvailable === true) {
-                        this.currentWell = well;
-                    }
-                }
-            },
-            updateParticipantMap: function(participant_id, row, col) {
-                if (this.isTemporaryBoxType(this.plate)) {
-                    if (!this.participantMap.hasOwnProperty(participant_id)) {
-                        this.participantMap[participant_id] = {
-                            participantGroup: null
-                        };
-                    }
-                    this.participantMap[participant_id].participantGroup = this.wells[row][col].participantGroup;
-                }
-            },
-            moveSpecimenWithinPlate: function(oldPos, specimen) {
-                let errors = {};
-                let rxOld = this.rx_well_position.exec(oldPos);
-                let rxNew = this.rx_well_position.exec(specimen.box_position);
-                if (rxOld === null || rxNew === null) {
-                    errors['specimen_move'] = `Failed to move specimen from '${oldPos}' to '${specimen.box_position}' - invalid/missing value for Box Position.`;
-                } else {
-                    this.wells[rxNew[1]][rxNew[2]].specimen = specimen;
-                    this.wells[rxOld[1]][rxOld[2]].specimen = null;
-                }
-                if (!this.isObjectEmpty(errors)) {
-                    this.errors = Object.assign(this.errors, errors);
-                }
-            },
-            loadSpecimensToPlate: function(specimens) {
-                let errors = {};
-                for (const s of specimens) {
-                    let w = this.rx_well_position.exec(s.box_position);
-                    if (w === null) {
-                        errors[`specimen_load_${s.record_id}`] = `Failed to add specimen '${s.name}' to the box - invalid/missing value for Box Position.`;
-                    } else {
-                        const row = w[1];
-                        const col = w[2];
-                        this.wells[row][col].specimen = s;
-                        this.updateParticipantMap(s.name_parsed.participant_id, row, col);
-                    }
-                }
-                if (!this.isObjectEmpty(errors)) {
-                    this.errors = Object.assign(this.errors, errors);
-                }
-            },
-            plateClass: function() {
-                let pc = [];
-                if (!this.isTemporaryBoxType(this.plate)) {
-                    pc.push('selectable');
-                }
-                return pc.join(' ');
-            },
-            wellClass: function(well) {
-                let wc = [];
-                if (well.specimen != null) {
-                    wc.push(this.getWellColorForSpecimen(well.specimen));
-                } else if (well.isSelected === true) {
-                    wc.push('plate-well-selected');
-                } else if (well.isAvailable === true) {
-                    wc.push('plate-well-empty');
-                } else {
-                    wc.push('plate-well-dark-800');
-                }
-                return wc.join(' ');
-            },
-            wellTitle: function(well) {
-                if (well.specimen !== null) {
-                    return well.specimen.name
-                } else if (well.isAvailable !== true) {
-                    return "UNAVAILABLE";
-                } else {
-                    return "EMPTY";
-                }
-            },
-            isWellAvailable: function(row, col) {
-                // certain logic should only be used for 'temporary' boxes
-                if (this.isTemporaryBoxType(this.plate)) {
-                    const maxRow = this.config.plate_size.row - (this.config.plate_size.row % this.config.num_specimens);
-                    const maxCol = this.config.plate_size.col - (this.config.plate_size.col % this.config.num_visits);
-                    return row <= maxRow && col <= maxCol;
-                } else {
-                    return true;
-                }
-            },
-            getWellColorForSpecimen: function(specimen) {
-                let colorIndex = 0;
-                if (this.isTemporaryBoxType(this.plate)) {
-                    colorIndex = Object.keys(this.participantMap).indexOf(specimen.name_parsed.participant_id);
-                    // if we run out of colors, just start over
-                    colorIndex = colorIndex % this.plateColors.length;
-                }
-                const c = this.plateColors[colorIndex];
-                return `plate-well-${c}-800`;
-            },
-            getWellForSpecimen: function(specimen) {
-                let response = {
-                    result: false,
-                    wellPosition: null,
-                    errors: {
-                        specimen: {
-                            name: []
-                        }
-                    }
-                };
-                try {
-                    if (this.isTemporaryBoxType(this.plate)) {
-                        // temporary box type '00'
-                        /*
-                            get the [participant_id]
-                            if it's already mapped to the box
-                                use [aliquot_number] to determine row
-                                use [visit] to determine column
-                                if the well is available
-                                    return success result
-                                else
-                                    return error result
-                            else
-                         */
-                        if (specimen === null) {
-                            throw `Cannot determine well position.  No specimen value provided!`;
-                        }
-                        const rx_spec = specimen.match(this.config.specimen_name_regex);
-                        const participant_id = rx_spec.groups['participant_id'];
-                        const visit = parseInt(rx_spec.groups['visit']);
-                        const aliquot_number = parseInt(rx_spec.groups['aliquot_number']);
-
-                        // get some easy validation out of the way first
-                        if (visit <= 0) {
-                            throw `Visit number (${visit}) must be greater than zero (0)!`;
-                        } else if (visit > this.config.num_visits) {
-                            throw `Visit number (${visit}) exceeds allowed limit (${this.config.num_visits})!`;
-                        }
-                        if (aliquot_number <= 0) {
-                            throw `Aliquot number (${aliquot_number}) must be greater than zero (0)!`;
-                        } else if (aliquot_number > this.config.num_specimens) {
-                            throw `Aliquot number (${aliquot_number}) exceeds allowed limit (${this.config.num_specimens})!`;
-                        }
-                        // target well position info
-                        let wellRow = null;
-                        let wellCol = null;
-                        // get the first column for this participant
-                        let participantGroup = null;
-                        let firstCol = null;
-                        // is the participant already mapped
-                        if (this.participantMap[participant_id]) {
-                            // get their column group
-                            participantGroup = this.participantMap[participant_id].participantGroup;
-                        } else {
-                            // ensure there's participant room
-                            const participants = Object.keys(this.participantMap);
-                            if (participants.length >= this.config.max_participants) {
-                                throw `Cannot add participant '${participant_id}' because the box is full!`;
-                            } else {
-                                // define total available column groups
-                                let participantGroups = Array.from(Array(this.config.max_participants).keys(), x => x + 1);
-                                // loop through existing participants to find first available participantGroup
-                                for (const [participant_id, value] of Object.entries(this.participantMap)) {
-                                    participantGroups.splice(participantGroups.indexOf(value.participantGroup), 1);
-                                }
-                                participantGroup = participantGroups.shift();
-                            }
-                        }
-                        const participantsPerRow = Math.floor(this.config.plate_size.col / this.config.num_visits);
-
-                        // get the target column based on column group and visit
-                        let modPG = participantGroup % participantsPerRow;
-                        if (modPG === 0) {
-                            modPG = participantsPerRow;
-                        }
-                        firstCol = ((modPG - 1) * this.config.num_visits) + 1;
-                        wellCol = firstCol - 1 + visit;
-
-                        // get the row offset based on participantGroup
-                        const participantGroupRowOffset = Math.floor((participantGroup - 1) / participantsPerRow) * this.config.num_specimens;
-                        // get the target row based on aliquot number and offset
-                        wellRow = Object.keys(this.wells)[(aliquot_number + participantGroupRowOffset) - 1];
-
-                        // make sure it's available and not already taken
-                        let wellPosition = [ wellRow, wellCol ].join('');
-                        let well = this.wells[wellRow][wellCol];
-                        if (!well) {
-                            throw `Unable to reserve position [${wellPosition}] due to an unknown reason.`;
-                        } else if (well.specimen !== null) {
-                            throw `A specimen already exists in position [${wellPosition}].`;
-                        } else if (well.isAvailable !== true) {
-                            throw `Position [${wellPosition}] is not available for use.`;
-                        }
-
-                        // if we've gotten this far, we've found a well
-                        // set current well and update the response
-                        this.currentWell = well;
-                        response.result = true;
-                        response.wellPosition = wellPosition;
-
-                    } else {
-                        // all other box types (standard layouts)
-                        let well = this.getNextAvailableWell();
-                        if (well !== null) {
-                            this.currentWell = well;
-                            response.result = true;
-                            response.wellPosition = well.wellPosition;
-                        } else {
-                            throw `Unable to obtain a valid well position.`;
-                        }
-                    }
-                } catch (e) {
-                    response.result = false;
-                    response.errors.specimen.name.push(e);
-                }
-                return response;
-            },
-            getNextAvailableWell: function() {
-                // determines well position for non-temporary-box
-                if (!this.isTemporaryBoxType(this.plate)) {
-                    // if no well is currently selected, finds the next open spot
-                    // if well is selected, find the next available well in box sequence (i.e. row->col)
-                    let targetWellPosition = "A1";
-                    if (this.currentWell !== null) {
-                        if (this.currentWell.isAvailable === true && this.currentWell.specimen === null) {
-                            return this.currentWell;
-                        } else {
-                            // new well based on current context
-                            // this will fail, but it's the simplest way to get to the next ordered position
-                            targetWellPosition = this.currentWell.wellPosition;
-                        }
-                    }
-                    // current well doesn't work, so lets iterate!
-                    let rx_pos = this.rx_well_position.exec(targetWellPosition);
-                    let wellRow = this.config.alphabet.indexOf(rx_pos[1]);
-                    let wellCol = rx_pos[2];
-                    // row->col plate order
-                    // row loop is 0-based, so use '<'
-                    for (let r = wellRow; r < this.config.plate_size.row; r++) {
-                        let rAlpha = this.config.alphabet[r];
-                        // col loop is 1-based, so use '<='
-                        for (let c = wellCol; c <= this.config.plate_size.col; c++) {
-                            let well = this.wells[rAlpha][c];
-                            if (well.isAvailable === true && well.specimen === null) {
-                                // if we found one, return it
-                                return well;
-                            }
-                        }
-                        // if we get here, we're wrapping to the next row
-                        // reset column to 1
-                        wellCol = 1;
-                    }
-                }
-                return null;
-            },
-            isTemporaryBoxType: function(plate) {
-                return plate && plate.box_name_parsed.box_type === '00';
-            },
-            validateSpecimens: function() {
-                let errors = {};
-                // plate overflow
-                if (this.maxSpecimens) {
-                    if (this.specimens.length === this.maxSpecimens) {
-                        this.isPlateFull = true;
-                    } else if (this.specimens.length > this.maxSpecimens) {
-                        errors['plate_overflow'] = `Maximum specimen limit exceeded! (count: ${this.specimens.length}, limit: ${this.maxSpecimens})`;
-                    }
-                }
-
-                // TODO nomenclature alignment
-
-                // temporary storage '00' validation
-                if (this.isTemporaryBoxType(this.plate)) {
-                    let counters = {
-                        // '1234': {
-                        //     '01': [
-                        //         '21-V1234-v01sr01',
-                        //         '21-V1234-v01sr02'
-                        //     ]
-                        // }
-                    };
-                    this.specimens.forEach((value, index) => {
-                        if (value.name_parsed === null) {
-                            errors[`specimen_name_${index}`] = 'Unable to process [' + value.name + ']: parsed value missing)';
-                            return;
-                        }
-                        // get the relevant pieces and add to the count collection
-                        let participant_id = value.name_parsed.participant_id;
-                        let visit = value.name_parsed.visit;
-                        if (participant_id !== null && visit !== null) {
-                            if (!counters[participant_id]) {
-                                counters[participant_id] = {};
-                            }
-                            if (!counters[participant_id][visit]) {
-                                counters[participant_id][visit] = [];
-                            }
-                            counters[participant_id][visit].push(value.name);
-                        }
-                    });
-                    const p_count = Object.keys(counters).length;
-                    // participant count validation
-                    if (p_count > this.config.max_participants) {
-                        errors['too_many_participants'] = `Box exceeds the participant limit! (count: ${p_count}, limit: ${this.config.max_participants})`;
-                    }
-                    // visit count validation
-                    for (const [participant_id, visits] of Object.entries(counters)) {
-                        const v_count = Object.keys(visits).length;
-                        if (v_count > this.config.num_visits) {
-                            errors[`pv_${participant_id}`] = `Participant [${participant_id}] exceeds the visit limit! (count: ${v_count}, limit: ${this.config.num_visits})`;
-                        }
-                        // specimen count validation
-                        for (const [visit_number, specimens] of Object.entries(visits)) {
-                            if (specimens.length > this.config.num_specimens) {
-                                errors[`pvs_${participant_id}_${visit_number}`] = `Participant & Visit [${participant_id}][${visit_number}] exceeds the specimen limit! (count: ${specimens.length}, limit: ${this.config.num_specimens})`;
-                            }
-                        }
-                    }
-                }
-
-                if (!this.isObjectEmpty(errors)) {
-                    this.errors = Object.assign(this.errors, errors);
-                }
-            },
-            gotoShipmentDashboard: function() {
-                window.location.href = `${this.config.shipment_dashboard_base_url}&id=${this.plate.shipment_record_id}`;
-            },
-            dateTimeFormat: function(dt) {
-                if (dt && this.config.datetime_format) {
-                    return DateTime.fromFormat(dt, this.luxonDateFormatFrom).toFormat(this.config.datetime_format);
-                }
-                return dt;
-            }
-        },
-        mounted() {
-            this.$nextTick(function () {
-                this.initializeDashboard();
-            });
-        }
+@each $color, $value in $colors {
+    .box-position-#{$color} {
+        border-color: $white;
+        background-color: $value;
     }
-</script>
-
-<style>
-    #specimen_table th {
-        font-weight: bold;
+    .box-position-#{$color}-800 {
+        border-color: $white;
+        background-color: lighten($value, 20%);
     }
+}
 
-    .dataTables_wrapper ul {
-        -webkit-padding-start: 20px;
-        margin-bottom: 0px;
+@each $color, $value in $theme-colors {
+    .box-position-#{$color} {
+        border-color: $white;
+        background-color: $value;
     }
+    .box-position-#{$color}-800 {
+        border-color: $white;
+        background-color: lighten($value, 20%);
+    }
+}
 
-    .plate-preview .row-header {
-        text-align: center;
-    }
+.overlay {
+    position: fixed !important;
+    top: calc(50% - 50px);
+    left: calc(50% - 50px);
+    z-index: 100; /* this seems to work for me but may need to be higher*/
+}
 
-    .plate-preview .col-header, .plate-preview .row-header, .plate-preview .plate-well {
-        height: 34px;
-        width: 34px;
-    }
+// ensure the fixed headers stay aligned with content due to scrollbar
+.margin-scrollbar {
+    margin-right: calc((-.5 * var(--bs-gutter-x)) + var(--scrollbar-width));
+}
 
-    .plate-preview .plate-well {
-        border: 1px solid #fff;
-    }
+.box-position-selected {
+    color: var(--bs-success) !important;
+    background-color: var(--bs-success-bg-subtle) !important;
+    border-color: var(--bs-success) !important;
+}
 
-    .plate-preview.selectable .plate-well-empty {
-        cursor: pointer;
-    }
+#dashboard_table th {
+    font-weight: bold;
+}
+
+.dataTables_wrapper ul {
+    -webkit-padding-start: 20px;
+    margin-bottom: 0px;
+}
+
+.box-preview {
+    --bp-cell-size: 34px;
+}
+
+.box-preview .row-header {
+    text-align: center;
+}
+
+.box-preview .col-header,.box-preview .row-header,.box-preview .box-position {
+    width: var(--bp-cell-size);
+}
+.box-preview .col-header {
+    height: var(--bp-cell-size);
+}
+.box-preview .row-header,.box-preview .box-position {
+    height: var(--bp-cell-size);
+}
+
+.box-preview .box-position {
+    border: 1px solid #fff;
+}
+
+.box-preview.selectable .box-position-empty {
+    cursor: pointer;
+}
+
+.box-preview-header {
+    overflow: hidden;
+    scrollbar-gutter: stable;
+}
+
+.box-preview-rows {
+    max-height: calc(var(--bp-cell-size) * 13);
+    scrollbar-gutter: stable;
+}
+
 </style>

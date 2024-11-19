@@ -27,8 +27,12 @@ trait REDCapUtils {
                     2 => "Complete"
                 ],
                 "date_field_formats" => [
+                    "date_dmy" => "d/m/Y",
                     "date_mdy" => "m/d/Y",
-                    "datetime_mdy" => "m/d/Y H:i"
+                    "date_ymd" => "Y-m-d",
+                    "datetime_dmy" => "d/m/Y H:i",
+                    "datetime_mdy" => "m/d/Y H:i",
+                    "datetime_ymd" => "Y-m-d H:i"
                 ],
                 "unstructured_field_types" => [
                     "text",
@@ -148,22 +152,26 @@ trait REDCapUtils {
      * @param $project_id
      * @param $key
      * @return mixed Key/value pair of field options
-     * @since 1.0.0 Initial release.
+     * @throws \Exception
      * @since 1.0.1 Now uses project context.
+     * @since 1.0.0 Initial release.
      */
-    public function getDictionaryValuesFor($project_id, $key) {
-        // TODO consider using $this->getChoiceLabels()
+    public function getDictionaryValuesFor($project_id, $key): mixed
+    {
         if (!array_key_exists($project_id, $this->_dictionaryValues)) {
             $this->_dictionaryValues[$project_id] = [];
         }
         if (!array_key_exists($key, $this->_dictionaryValues[$project_id])) {
-            $this->_dictionaryValues[$project_id][$key] =
-                $this->flatten_type_values($this->getDataDictionary($project_id)[$key]['select_choices_or_calculations']);
+            if (!empty($this->getDataDictionary($project_id)[$key]['select_choices_or_calculations'])) {
+                $this->_dictionaryValues[$project_id][$key] =
+                    $this->flatten_type_values($this->getDataDictionary($project_id)[$key]['select_choices_or_calculations']);
+            }
         }
         return $this->_dictionaryValues[$project_id][$key];
     }
 
-    public function comma_delim_to_key_value_array($value) {
+    public function comma_delim_to_key_value_array($value): array
+    {
         $arr = explode(', ', trim($value));
         $sliced = array_slice($arr, 1, count($arr) - 1, true);
         return array($arr[0] => implode(', ', $sliced));
@@ -186,8 +194,7 @@ trait REDCapUtils {
         $mapped = array_map(function ($value) {
             return $this->comma_delim_to_key_value_array($value);
         }, $split);
-        $result = $this->array_flatten($mapped);
-        return $result;
+        return $this->array_flatten($mapped);
     }
 
     /**
@@ -423,49 +430,6 @@ trait REDCapUtils {
             "is_file" => is_file($path2),
             "is_writeable" => is_writeable($path2)
         ];
-    }
-
-    /**
-     * Override of an EM framework method
-     * TODO This method can be removed when upgrade to framework v11 or higher
-     * @param $value
-     * @return array|bool|float|int|string|null
-     */
-    public function escape($value){
-        $type = gettype($value);
-
-        /**
-         * The unnecessary casting on these first few types exists solely to inform psalm and avoid warnings.
-         */
-        if($type === 'boolean'){
-            return (bool) $value;
-        }
-        else if($type === 'integer'){
-            return (int) $value;
-        }
-        else if($type === 'double'){
-            return (float) $value;
-        }
-        else if($type === 'array'){
-            $newValue = [];
-            foreach($value as $key=>$subValue){
-                $key = static::escape($key);
-                $subValue = static::escape($subValue);
-                $newValue[$key] = $subValue;
-            }
-
-            return $newValue;
-        }
-        else if($type === 'NULL'){
-            return null;
-        }
-        else{
-            /**
-             * Handle strings, resources, and custom objects (via the __toString() method.
-             * Apart from escaping, this produces that same behavior as if the $value was echoed or appended via the "." operator.
-             */
-            return htmlspecialchars(''.$value, ENT_QUOTES);
-        }
     }
 
     public function getDataTable($project_id) {

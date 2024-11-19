@@ -8,94 +8,108 @@ trait ModuleUtils {
 
     private $_configurations = null;
     private $_project_maps = [];
-
-    private $_enabled_projects = null;
     private $_current_configuration = null;
 
     /** @var \Project */
-    private $_plate_project = null;
+    private $_box_project = null;
     /** @var \Project  */
     private $_specimen_project = null;
     /** @var \Project  */
     private $_shipment_project = null;
 
-    /**
-     * @return array
-     * @throws Exception
-     */
-    function getAllConfigurations() : array {
-        if ($this->_configurations == null) {
-            $this->initConfigurations();
+    function getFieldTypeForValidation($type, $val)
+    {
+        switch ($val) {
+            case "date_dmy":
+            case "date_mdy":
+            case "date_ymd":
+                $type = "date";
+                break;
+            case "datetime_dmy":
+            case "datetime_mdy":
+            case "datetime_ymd":
+                $type = "datetime";
+                break;
         }
-        return $this->_configurations;
+        return $type;
     }
 
     /**
      * @throws Exception
      */
-    function initConfigurations() {
+    function getFieldMetadata($project_name, $field_name): array
+    {
+        $proj = match ($project_name) {
+            "box" => $this->getBoxProject(),
+            "specimen" => $this->getSpecimenProject(),
+            "shipment" => $this->getShipmentProject(),
+            default => throw new Exception("Cannot get field configuration - unknown project name!"),
+        };
+        $dd_field = $this->getDataDictionary($proj->project_id)[$field_name];
+        $field_type = $dd_field["field_type"];
+        $field_val = $dd_field["text_validation_type_or_show_slider_number"];
+        $field_type = $this->getFieldTypeForValidation($field_type, $field_val);
+        return [
+            "field_name" => $field_name,
+            "project_name" => $project_name,
+            "field_label" => trim($dd_field["field_label"]),
+            "field_type" => $field_type,
+            "required" => $dd_field["required_field"] === "y",
+            "choices" => $this->getDictionaryValuesFor($proj->project_id, $field_name),
+            "validation" => $field_val
+        ];
+    }
+
+    /**
+     * @throws Exception
+     */
+    function initConfigurations(): void
+    {
         if ($this->_configurations !== null) {
             return;
         }
-        $this->_enabled_projects = array_flip($this->getProjectsWithModuleEnabled());
+        $enabled_projects = array_flip($this->getProjectsWithModuleEnabled());
         $system_settings = [];
         // parent
         $system_settings["project_configs"] = $this->getSystemSetting("project_configs");
         // sub_settings
-        $system_settings["study_name"] = $this->getSystemSetting("study_name");
-        $system_settings["plate_project_id"] = $this->getSystemSetting("plate_project_id");
+        $system_settings["box_project_id"] = $this->getSystemSetting("box_project_id");
         $system_settings["specimen_project_id"] = $this->getSystemSetting("specimen_project_id");
         $system_settings["shipment_project_id"] = $this->getSystemSetting("shipment_project_id");
-        $system_settings["plate_size"] = $this->getSystemSetting("plate_size");
-        $system_settings["use_temp_box_type"] = $this->getSystemSetting("use_temp_box_type");
-        $system_settings["num_visits"] = $this->getSystemSetting("num_visits");
-        $system_settings["num_specimens"] = $this->getSystemSetting("num_specimens");
-        $system_settings["default_volume"] = $this->getSystemSetting("default_volume");
-        $system_settings["datetime_format"] = $this->getSystemSetting("datetime_format");
-        $system_settings["box_name_regex"] = $this->getSystemSetting("box_name_regex");
-        $system_settings["specimen_name_regex"] = $this->getSystemSetting("specimen_name_regex");
-        $system_settings["collected_to_processed_minutes_max"] = $this->getSystemSetting("collected_to_processed_minutes_max");
-        $system_settings["cdc_override_checked"] = $this->getSystemSetting("cdc_override_checked");
         // process each configuration
         foreach ($system_settings["project_configs"] as $k => $v) {
-            // build initial config entry
-            $study_name = $system_settings["study_name"][$k];
-            $plate_project_id = $system_settings["plate_project_id"][$k];
+            // project_id's
+            $box_project_id = $system_settings["box_project_id"][$k];
             $specimen_project_id = $system_settings["specimen_project_id"][$k];
             $shipment_project_id = $system_settings["shipment_project_id"][$k];
+            // get the saved config
+            $module_config = json_decode($this->getProjectSetting("module-config", $box_project_id) ?? "{}", true);
+            // build the config
             $config = [
-                "study_name" => $study_name,
-                "plate_project_id" => $plate_project_id,
+                "box_project_id" => $box_project_id,
                 "specimen_project_id" => $specimen_project_id,
                 "shipment_project_id" => $shipment_project_id,
-                "plate_project_enabled" => isset($this->_enabled_projects[$plate_project_id]),
-                "specimen_project_enabled" => isset($this->_enabled_projects[$specimen_project_id]),
-                "shipment_project_enabled" => isset($this->_enabled_projects[$shipment_project_id]),
-                "plate_size" => $system_settings["plate_size"][$k],
-                "default_volume" => $system_settings["default_volume"][$k],
-                "datetime_format" => $system_settings["datetime_format"][$k],
-                "box_name_regex" => $system_settings["box_name_regex"][$k],
-                "specimen_name_regex" => $system_settings["specimen_name_regex"][$k],
-                "use_temp_box_type" => $system_settings["use_temp_box_type"][$k] === true,
-                "collected_to_processed_minutes_max" => $system_settings["collected_to_processed_minutes_max"][$k],
-                "cdc_override_checked" => $system_settings["cdc_override_checked"][$k],
+                "plate_project_enabled" => isset($enabled_projects[$box_project_id]),
+                "specimen_project_enabled" => isset($enabled_projects[$specimen_project_id]),
+                "shipment_project_enabled" => isset($enabled_projects[$shipment_project_id]),
+                // TODO this should be pulled from the module config
+                "study_name" => $module_config["general"]["study_name"],
+                "box_name_regex" => $module_config["general"]["box_name_regex"],
+                "specimen_name_regex" => $module_config["general"]["specimen_name_regex"],
                 "errors" => []
             ];
 
             // do some internal validation
-            $projects = array_filter([ $plate_project_id, $specimen_project_id, $shipment_project_id ]);
+            $projects = array_filter([ $box_project_id, $specimen_project_id, $shipment_project_id ]);
             $distinct_projects = array_unique($projects);
             if (count($projects) !== count($distinct_projects)) {
                 $config["errors"][] = "A project is used more than once within this configuration!";
             }
-            if (empty($config["study_name"])) {
-                $config["errors"][] = "Configuration value missing: <code>Study Name</code>";
-            }
             // ensure projects are selected and module is enabled on each
-            if (empty($config["plate_project_id"])) {
+            if (empty($config["box_project_id"])) {
                 $config["errors"][] = "The Box Project configuration is missing!";
             } else if ($config["plate_project_enabled"] == false) {
-                $config["errors"][] = "The module has not been enabled on the [<code>$plate_project_id</code>] Box Project.";
+                $config["errors"][] = "The module has not been enabled on the [<code>$box_project_id</code>] Box Project.";
             }
             if (empty($config["specimen_project_id"])) {
                 $config["errors"][] = "The Specimen Project configuration is missing!";
@@ -107,35 +121,20 @@ trait ModuleUtils {
             } else if ($config["shipment_project_enabled"] == false) {
                 $config["errors"][] = "The module has not been enabled on the [<code>$shipment_project_id</code>] Shipment Project.";
             }
-            if (empty($config["plate_size"])) {
-                $config["errors"][] = "Configuration value missing: <code>Box Size</code>";
-            }
-            if (!empty($config["collected_to_processed_minutes_max"])) {
-                if (!is_numeric($config["collected_to_processed_minutes_max"]) || $config["collected_to_processed_minutes_max"] <= 0) {
-                    $config["errors"][] = "Configuration value <code>[collected_to_processed_minutes_max]</code> invalid.  Must be numeric and greater than zero!";
-                }
-            }
-            // only include/validate these fields if [use_temp_box_type] was checked
-            if ($config["use_temp_box_type"]) {
-                $config["num_visits"] = $system_settings["num_visits"][$k];
-                $config["num_specimens"] = $system_settings["num_specimens"][$k];
-                if (empty($config["num_visits"])) {
-                    $config["errors"][] = "Configuration value missing: <code>Total Visits</code>";
-                }
-                if (empty($config["num_specimens"])) {
-                    $config["errors"][] = "Configuration value missing: <code>Specimens Per Visit</code>";
-                }
-            }
-            if (empty($config["box_name_regex"])) {
-                $config["errors"][] = "Configuration value missing: <code>Box Name RegEx</code>";
-            }
-            if (empty($config["specimen_name_regex"])) {
-                $config["errors"][] = "Configuration value missing: <code>Specimen Name RegEx</code>";
-            }
+            // TODO validate somewhere else further downstream to not interrupt the config page itself!
+//            if (empty($config["study_name"])) {
+//                $config["errors"][] = "Configuration value missing: <code>Study Name</code>";
+//            }
+//            if (empty($config["box_name_regex"])) {
+//                $config["errors"][] = "Configuration value missing: <code>Box Name RegEx</code>";
+//            }
+//            if (empty($config["specimen_name_regex"])) {
+//                $config["errors"][] = "Configuration value missing: <code>Specimen Name RegEx</code>";
+//            }
 
             // build lookup values for later
-            if (!empty($config["plate_project_id"])) {
-                $this->_project_maps[$config["plate_project_id"]][$k] = "plate_project_id";
+            if (!empty($config["box_project_id"])) {
+                $this->_project_maps[$config["box_project_id"]][$k] = "box_project_id";
             }
             if (!empty($config["specimen_project_id"])) {
                 $this->_project_maps[$config["specimen_project_id"]][$k] = "specimen_project_id";
@@ -150,7 +149,7 @@ trait ModuleUtils {
 
         // additional loop for cross-config validation
         foreach ($this->_configurations as $k => $config) {
-            $ppid = $config["plate_project_id"];
+            $ppid = $config["box_project_id"];
             $spid = $config["specimen_project_id"];
             $shid = $config["shipment_project_id"];
             if ($ppid !== null && count($this->_project_maps[$ppid]) > 1) {
@@ -192,7 +191,7 @@ trait ModuleUtils {
             throw new Exception("Cannot set configuration context using an invalid configuration.");
         }
         $this->_current_configuration = $config;
-        $this->_plate_project = new \Project($config["plate_project_id"]);
+        $this->_box_project = new \Project($config["box_project_id"]);
         $this->_specimen_project = new \Project($config["specimen_project_id"]);
         $this->_shipment_project = new \Project($config["shipment_project_id"]);
     }
@@ -220,27 +219,22 @@ trait ModuleUtils {
             $result = $this->_configurations[$k];
             // any other errors (i.e. if the partner project is referenced too many times)
             // will already exist in the config's errors array
-
-            // data dictionary validation
-            if (empty($result["errors"])) {
-                // fields exist and are correct field types
-                // TODO array_diff required fields array with project fields
-            }
         }
         return $result;
     }
 
     /**
-     * Get the Plate Project, if context has been established. Should never be called before
+     * Get the Box Project, if context has been established. Should never be called before
      * $module->setConfigProjectContext()
      * @return \Project
      * @throws Exception
      */
-    function getPlateProject() {
-        if ($this->_plate_project === null) {
-            throw new Exception("Plate project context has not yet been established");
+    function getBoxProject(): \Project
+    {
+        if ($this->_box_project === null) {
+            throw new Exception("Box project context has not yet been established");
         }
-        return $this->_plate_project;
+        return $this->_box_project;
     }
 
     /**
@@ -249,7 +243,8 @@ trait ModuleUtils {
      * @return \Project
      * @throws Exception
      */
-    function getSpecimenProject() {
+    function getSpecimenProject(): \Project
+    {
         if ($this->_specimen_project === null) {
             throw new Exception("Specimen project context has not yet been established");
         }
@@ -262,7 +257,8 @@ trait ModuleUtils {
      * @return \Project
      * @throws Exception
      */
-    function getShipmentProject() {
+    function getShipmentProject(): \Project
+    {
         if ($this->_shipment_project === null) {
             throw new Exception("Shipment project context has not yet been established");
         }
