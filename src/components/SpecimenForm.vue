@@ -189,6 +189,8 @@ const rules = computed(() => {
     if (isNotEmpty(fields.value)) {
         let k = null;
         for (k in fields.value['specimen']) {
+            // skip fields that are not 'specimen-entry-form' enabled
+            if (!config['save-state']['specimen'][k]['specimen-entry-form']) continue;
             // validation
             let sr = {};
             let fv = fields.value['specimen'][k];
@@ -452,7 +454,7 @@ const saveSpecimen = (s) => {
                 if (response) {
                     // push back to root so it can be added to specimen list
                     emit('specimenSaved', response);
-                    resetSpecimen(batchEnabled.value);
+                    resetSpecimen();
                 }
             }
         })
@@ -501,7 +503,7 @@ const focusNext = (current) => {
     }
 } ;
 
-const resetSpecimen = (preserveBatch = false) => {
+const resetSpecimen = () => {
     // clear any warnings before field loop
     warnings.value = {};
     // reset each property on the specimen
@@ -519,7 +521,7 @@ const resetSpecimen = (preserveBatch = false) => {
         // ensure i'm not wiping out fields that cannot be seen/edited
         if (!config['save-state']['specimen'][k]['specimen-entry-form']) continue;
         // preserve batch fields, if necessary
-        if (preserveBatch && config['save-state']['specimen'][k]['batch-mode']) continue;
+        if (batchEnabled.value && config['save-state']['specimen'][k]['batch-mode']) continue;
         // look for fields with a configured default value
         if (isNotEmpty(config['save-state']['specimen'][k]['field-default'])) {
             specimen.value[k] = config['save-state']['specimen'][k]['field-default'];

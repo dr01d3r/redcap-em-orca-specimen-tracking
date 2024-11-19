@@ -16,7 +16,7 @@ const confirmDelete = (specimen) => {
         message: specimen.specimen_name,
         header: 'Deleting Specimen',
         accept: () => {
-            deleteSpecimen(sample.record_id);
+            deleteSpecimen(specimen.record_id);
         }
     });
 };
