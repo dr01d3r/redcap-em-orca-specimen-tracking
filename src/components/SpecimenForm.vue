@@ -484,6 +484,8 @@ const resetFocus = () => {
 }
 
 const focusNext = (current) => {
+    // exit early if there are no fields to work with
+    if (!inputRefs.value) return;
     // initialize next to -1, so prevent action if we don't find a valid target
     let next = -1;
     // if field name is mapped, get its index
