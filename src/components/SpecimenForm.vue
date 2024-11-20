@@ -95,7 +95,9 @@ const defaultSpecimenState = () => {
 
 // VUELIDATE
 const noFutureDateTime = (value, vm, model) => {
-    return isEmpty(value) || DateTime.fromFormat(value, ModuleUtils.luxonDateTimeFormatFrom) <= DateTime.now();
+    // DateTime.fromSQL is able to parse both date and datetime fields
+    // https://moment.github.io/luxon/#/parsing?id=sql
+    return isEmpty(value) || DateTime.fromSQL(value) <= DateTime.now();
 };
 const sameAsConfirm = (field_name) => helpers.withParams(
     { type: 'sameAsConfirm', value: field_name },
@@ -106,8 +108,10 @@ const sameAsConfirm = (field_name) => helpers.withParams(
 
 const afterDateMinMax = (field_name, extras) => helpers.withParams({}, (value, vm, model) => {
         if (isNotEmpty(value) && isNotEmpty(extras) && isNotEmpty(specimen.value[extras['target']])) {
-            let d1 = DateTime.fromFormat(value, ModuleUtils.luxonDateTimeFormatFrom);
-            let d2 = DateTime.fromFormat(specimen.value[extras['target']], ModuleUtils.luxonDateTimeFormatFrom);
+            // DateTime.fromSQL is able to parse both date and datetime fields
+            // https://moment.github.io/luxon/#/parsing?id=sql
+            let d1 = DateTime.fromSQL(value);
+            let d2 = DateTime.fromSQL(specimen.value[extras['target']]);
             // calculate the diff with min/max, if set
             const diff = Interval.fromDateTimes(d2, d1).length("minutes");
             // minimum
@@ -136,8 +140,10 @@ const afterDateMinMax = (field_name, extras) => helpers.withParams({}, (value, v
 );
 const afterDateTime = (extras) => helpers.withParams({}, (value, vm, model) => {
         if (isNotEmpty(value) && isNotEmpty(extras) && isNotEmpty(specimen.value[extras['target']])) {
-            let d1 = DateTime.fromFormat(value, ModuleUtils.luxonDateTimeFormatFrom);
-            let d2 = DateTime.fromFormat(specimen.value[extras['target']], ModuleUtils.luxonDateTimeFormatFrom);
+            // DateTime.fromSQL is able to parse both date and datetime fields
+            // https://moment.github.io/luxon/#/parsing?id=sql
+            let d1 = DateTime.fromSQL(value);
+            let d2 = DateTime.fromSQL(specimen.value[extras['target']]);
             return d1 >= d2;
         }
         return true;
@@ -213,6 +219,9 @@ const rules = computed(() => {
                 if (isNotEmpty(fv['validation']) && config.validation[fv['validation']['type']]) {
                     // get the validation info
                     let val_info = config.validation[fv['validation']['type']];
+                    // date_ymd
+                    // normalize date due to the component being used
+                    if (fv['field_type'] === 'date') val_info = config.validation['date_ymd'];
                     // normalize datetime due to the component being used
                     if (fv['field_type'] === 'datetime') val_info = config.validation['datetime_ymd'];
                     // apply validation to the rules
