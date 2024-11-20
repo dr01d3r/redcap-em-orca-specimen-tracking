@@ -1,3 +1,8 @@
+## 2.0.2
+- Fixed a bug that was causing a validation error for fields using `date_mdy` or `date_dmy` validation.
+- Fixed a limitation that was preventing extras from being available for `date` fields.
+  - Extras validation can now use any combination of Date and DateTime fields.
+- Changed some code to be PHP 7.3 compatible
 ## 2.0.1
 - Fixed a bug that would prevent a specimen save if a specimen field was not enabled on the Specimen Entry Form, but was marked required or had Extras.
 - Fixed a bug that was preventing the deletion of specimens from a box.

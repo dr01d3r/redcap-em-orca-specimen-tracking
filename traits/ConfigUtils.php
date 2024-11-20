@@ -132,12 +132,18 @@ trait ConfigUtils {
         // prep some metadata for building the dataset
         $valTypes = getValTypes();
         $exclude_types = [ "calc", "file", "slider", "descriptive", "sql" ];
-        $proj = match ($project_name) {
-            "box" => $this->getBoxProject(),
-            "specimen" => $this->getSpecimenProject(),
-            "shipment" => $this->getShipmentProject(),
-            default => throw new Exception("Cannot get field configuration - unknown project name!"),
-        };
+        switch ($project_name) {
+            case "box":
+                $proj = $this->getBoxProject();
+                break;
+            case "specimen":
+                $proj = $this->getSpecimenProject();
+                break;
+            case "shipment":
+                $proj = $this->getShipmentProject();
+                break;
+            default: throw new Exception("Cannot get field configuration - unknown project name!");
+        }
         foreach ($proj->metadata as $field_name => $f) {
             // exclude unsupported field types
             if ($proj->isFormStatus($field_name) || in_array($f["element_type"], $exclude_types)) continue;
@@ -192,8 +198,8 @@ trait ConfigUtils {
                         ];
                     }
                 }
-                // custom rules for "datetime" fields
-                if (in_array($metadata["field_type"], [ "datetime" ])) {
+                // custom rules for "date" and "datetime" fields
+                if (in_array($metadata["field_type"], [ "date", "datetime" ])) {
                     // noFuture
                     $field_config["extras"]["noFuture"] = [
                         "enabled" => $module_config[$field_name]["extras"]["noFuture"]["enabled"] ?? false

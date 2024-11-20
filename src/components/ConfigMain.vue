@@ -577,7 +577,7 @@ onMounted(() => {
                                             <option value="">--</option>
                                             <template v-for="(v, k) in metadata['specimen']">
                                                 <option :value="k"
-                                                        v-if="k !== selectedEFM['field_name'] && state['fields']['specimen'][k]['specimen-entry-form'] && ['datetime'].includes(v['field_type'])"
+                                                        v-if="k !== selectedEFM['field_name'] && state['fields']['specimen'][k]['specimen-entry-form'] && ['date','datetime'].includes(v['field_type'])"
                                                 >{{ v['field_label'] }}</option>
                                             </template>
                                         </select>
