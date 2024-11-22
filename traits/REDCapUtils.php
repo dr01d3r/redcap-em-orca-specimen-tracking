@@ -156,7 +156,7 @@ trait REDCapUtils {
      * @since 1.0.1 Now uses project context.
      * @since 1.0.0 Initial release.
      */
-    public function getDictionaryValuesFor($project_id, $key): mixed
+    public function getDictionaryValuesFor($project_id, $key)
     {
         if (!array_key_exists($project_id, $this->_dictionaryValues)) {
             $this->_dictionaryValues[$project_id] = [];
