@@ -39,12 +39,18 @@ trait ModuleUtils {
      */
     function getFieldMetadata($project_name, $field_name): array
     {
-        $proj = match ($project_name) {
-            "box" => $this->getBoxProject(),
-            "specimen" => $this->getSpecimenProject(),
-            "shipment" => $this->getShipmentProject(),
-            default => throw new Exception("Cannot get field configuration - unknown project name!"),
-        };
+        switch ($project_name) {
+            case "box":
+                $proj = $this->getBoxProject();
+                break;
+            case "specimen":
+                $proj = $this->getSpecimenProject();
+                break;
+            case "shipment":
+                $proj = $this->getShipmentProject();
+                break;
+            default: throw new Exception("Cannot get field configuration - unknown project name!");
+        }
         $dd_field = $this->getDataDictionary($proj->project_id)[$field_name];
         $field_type = $dd_field["field_type"];
         $field_val = $dd_field["text_validation_type_or_show_slider_number"];
