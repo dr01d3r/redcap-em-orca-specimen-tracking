@@ -390,7 +390,7 @@ trait ShipmentUtils {
         if (empty($response["errors"])) {
             try {
                 // ensure the box exists
-                $plate = $this->getBox($box_record_id, $system_config["box_name_regex"]);
+                $plate = $this->getBox($box_record_id);
                 if (empty($plate)) {
                     $response["errors"][] = "Cannot update box/shipment.  No box exists with [record_id]=$box_record_id.";
                 }

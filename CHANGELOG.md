@@ -1,3 +1,5 @@
+## 2.0.3
+- PHP compatibility changes
 ## 2.0.2
 - Fixed a bug that was causing a validation error for fields using `date_mdy` or `date_dmy` validation.
 - Fixed a limitation that was preventing extras from being available for `date` fields.
