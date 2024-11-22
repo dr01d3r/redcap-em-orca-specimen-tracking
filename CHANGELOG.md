@@ -1,3 +1,5 @@
+## 2.0.4
+- Additional PHP compatibility changes to maintain support for PHP 7.3, until REDCap officially drops it.
 ## 2.0.3
 - PHP compatibility changes
 ## 2.0.2
