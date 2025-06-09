@@ -228,12 +228,20 @@ trait REDCapUtils {
      * @return array
      * @throws \Exception
      */
-    public function getFieldDisplayValue($Proj, $field_name, $field_value) {
+    public function getFieldDisplayValue($Proj, $field_name, $field_value)
+    {
 
         $field_result = [
             "value" => $field_value
         ];
         $metadata = $this->getMyMetadata($Proj->project_id);
+
+        // missing_data_code stuff
+        $mdcs = [];
+        $is_mdc = false;
+        if(!empty($Proj->project['missing_data_codes'])) {
+            $mdcs = $this->getMissingDataCodes($Proj->project_id);
+        }
 
         // if I can't find the field in the project, just return the original value
         if (!isset($metadata["fields"][$field_name])) {
@@ -256,6 +264,9 @@ trait REDCapUtils {
         if ($Proj->isFormStatus($field_name)) {
             // special value handling for form statuses
             $field_value = $metadata["form_statuses"][$field_value];
+        } else if (isset($mdcs[$field_value])) {
+            $is_mdc = true;
+            $field_value = $mdcs[$field_value];
         } else if (!in_array($field_type, $metadata["unstructured_field_types"])) {
             switch ($field_type) {
                 case "select":
@@ -291,7 +302,7 @@ trait REDCapUtils {
 
         // update field value if this is a known date format
         $element_validation_type = $Proj->metadata[$field_name]["element_validation_type"];
-        if (array_key_exists($element_validation_type, $metadata["date_field_formats"]) && !empty($field_value)) {
+        if (!empty($field_value) && !$is_mdc && array_key_exists($element_validation_type, $metadata["date_field_formats"])) {
             $field_result["__SORT__"] = strtotime($field_value);
             $field_value = date_format(date_create($field_value), $metadata["date_field_formats"][$element_validation_type]);
         }
@@ -434,5 +445,17 @@ trait REDCapUtils {
 
     public function getDataTable($project_id) {
         return method_exists('\REDCap', 'getDataTable') ? \REDCap::getDataTable($project_id) : "redcap_data";
+    }
+
+    public function getMissingDataCodes($project_id) {
+        $proj = new \Project($project_id);
+        $mdcs = [];
+        if (!empty($proj->project['missing_data_codes'])) {
+            foreach (explode("\r\n", $proj->project['missing_data_codes']) as $r) {
+                $a = explode(",", $r, 2);
+                $mdcs[trim($a[0])] = trim($a[1]);
+            }
+        }
+        return $mdcs;
     }
 }

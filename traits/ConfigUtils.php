@@ -144,6 +144,8 @@ trait ConfigUtils {
                 break;
             default: throw new Exception("Cannot get field configuration - unknown project name!");
         }
+        $has_mdc = !empty($proj->project['missing_data_codes']);
+        // field metadata/config
         foreach ($proj->metadata as $field_name => $f) {
             // exclude unsupported field types
             if ($proj->isFormStatus($field_name) || in_array($f["element_type"], $exclude_types)) continue;
@@ -172,6 +174,7 @@ trait ConfigUtils {
                 "shipment-list" => $module_config[$field_name]["shipment-list"] ?? false,
                 "shipment-box-list" => $module_config[$field_name]["shipment-box-list"] ?? false,
                 "shipment-manifest" => $module_config[$field_name]["shipment-manifest"] ?? false,
+                "shipment-manifest-header" => $module_config[$field_name]["shipment-manifest-header"],
             ];
             // sync up default selections based on metadata config
             foreach ($metadata["config"] as $mc => $mi) {
@@ -182,6 +185,15 @@ trait ConfigUtils {
             // add additional custom validation rules for specimen project
             // be sure to ignore specific infrastructure fields
             if ($project_name === "specimen" && !in_array($field_name, [ "record_id", "box_record_id", "box_position" ])) {
+                // missing data codes
+                // ensure the project has missing data codes
+                if ($has_mdc) {
+                    if ($field_name !== "specimen_name") {
+                        $field_config["extras"]["missingDataCodes"] = [
+                            "enabled" => $module_config[$field_name]["extras"]["missingDataCodes"]["enabled"] ?? false,
+                        ];
+                    }
+                }
                 // custom rules for "text" fields
                 if ($metadata["field_type"] === "text") {
                     // [specimen_name] gets a special rule, and other text fields get the rest

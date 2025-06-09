@@ -1,3 +1,10 @@
+## 2.0.5
+- Added support for Missing Data Code usage during Specimen Entry
+- Shipment Manifest Export headers can now be customized in the configuration dashboard.
+  - When no custom value is specified the header defaults to the field name.
+- Configuration Dashboard changes can now be saved via keyboard shortcuts
+  - Ctrl+S (Windows)
+  - ⌘+S (Mac)
 ## 2.0.4
 - Additional PHP compatibility changes to maintain support for PHP 7.3, until REDCap officially drops it.
 ## 2.0.3

@@ -28,16 +28,7 @@ try {
     $temp_path = $module->generateTempFileName(5);
     $temp_output = fopen($temp_path, 'c');
     // headers
-    $file_headers = array_map(function($k) use ($module_config) {
-        $tmp = $k;
-        // TODO switch to use defined values in module config
-//        switch ($k) {
-//            case "volume":
-//                $tmp = "$sample_type ($sample_unit)";
-//                break;
-//        }
-        return $tmp;
-    }, array_keys(reset($data)));
+    $file_headers = array_keys(reset($data));
     fputcsv($temp_output, $file_headers);
     // rows
     foreach ($data as $i => $row) {

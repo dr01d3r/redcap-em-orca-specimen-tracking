@@ -75,7 +75,8 @@ trait PlateUtils {
                 "fields" => $metadata ?? [],
                 "validation" => getValTypes(),
                 "alphabet" => range('A', 'Z'),
-                "shipment_dashboard_base_url" => $this->getUrl("views/shipment.php")
+                "shipment_dashboard_base_url" => $this->getUrl("views/shipment.php"),
+                "missing_data_codes" => $this->getMissingDataCodes($this->getSpecimenProject()->project_id)
             ];
 
             // prep new box url
@@ -164,8 +165,8 @@ trait PlateUtils {
     {
         $boxes = [];
         // get the data_table context
-        $dt_d = $this->getBoxProject()->project["data_table"];
-        $st_s = $this->getSpecimenProject()->project["data_table"];
+        $dt_d = \Records::getDataTable($this->getBoxProject()->project_id);
+        $st_s = \Records::getDataTable($this->getSpecimenProject()->project_id);
         // define some conditional logic
         $sql_joins_1 = "";
         $sql_joins_2 = "";

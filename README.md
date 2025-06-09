@@ -2,57 +2,9 @@
 
 An easy-to-use custom interface for receiving, boxing, and shipping specimens.
 
-## Migration Guide (v1 to v2)
+## Migrating from v1 to v2?
 
-This is a basic migration guide, to help get you through the initial process of re-configuring an exist set of projects from v1.0.3 to v2.0.0.
-
-### Box Project Changes
-
-**Breaking Change:** New `[box_size]` field required.
-
-This field is required to define the size of the box.
-
-**Solution:** Data Import File
-
-If your project was set up for `8x12` boxes in the Control Center, you can create a simple Data Import file that's just `record` and `box_size`, and for each box record, a value of `8x12`.
-
-**Example:**
-
-```
-record_id,box_size
-1,8x12
-2,8x12
-3,8x12
-...
-999,8x12
-```
-
-### Specimen Project Changes
-
-**Breaking Change:** Required field name change from `[name]` to `[specimen_name]`.
-
-This change was necessary for us, but luckily it should be a pretty simple update.
-
-**Solution:** Data Export & Data Import!
-
-1. Create the new `[specimen_name]` field, or simply create a copy of your existing `[name]` field.
-1. Create a Data Export that contains just your `[record_id]` and `[name]` fields.
-1. Open and modify the export file, renaming the `name` header to `specimen_name` and adding `name` to the end.
-   - The goal is to tell REDCap to update the `[specimen_name]` field and blank out the `[name]` field, so you aren't left with orphan data. 
-   - It's best to do this step in Excel.  A text editor can get you there, but extra manual work might need to be done. 
-1. Import the file through the Data Import tool, ensuring you force blank values to overwrite.
-1. Once the data has been verified, you can delete the old `[name]` field.
-
-### Configuration Changes
-
-**Breaking Change:** Everything!
-
-That might sound rough, but the Dashboard Configuration interface hopefully does a good job of making the new configuration process a lot easier, once you get familiar with it.
-
-We had to get the configuration out of the Control Center, and the existing module config was not designed to cover such specific and complex needs, so we build a fully customized interface to replace it.  
-
-- Review the README and the build-in documentation within the configuration interface
-- Configure one interface (color-matched columns) at a time and test as you go
+See [MIGRATION](MIGRATION.md) on how to transition to version 2.
 
 ## Support & Feedback
 
@@ -65,8 +17,10 @@ We had to get the configuration out of the Control Center, and the existing modu
 - Specimen Entry Dashboard that includes:
   - Streamlined data entry through multiple pre-fill options
   - Detailed list of specimens in the current box
-  - Interactive box preview for a quick at-a-glance look at specimens in the current box.
+  - Interactive box preview for a quick at-a-glance look at specimens in the current box
+  - Missing Data Code support
 - Shipment Dashboard for creating and managing box shipments
+  - A shipment manifest export (CSV) that supports customizable column headers
 - Reporting Dashboard for a complete look at the data across all 3 projects
 - **All of it is fully-customizable!**
 
@@ -77,10 +31,10 @@ We had to get the configuration out of the Control Center, and the existing modu
 - REDCap
   - Framework Version: 14
   - Minimum: v13.7.0
-  - Latest: v14.8.0
+  - Latest: v15.4.0
 - PHP
   - Minimum: Module scan tests compatibility v7.3+
-  - Latest: v8.2.21
+  - Latest: v8.3.21
 
 ---
 
@@ -96,11 +50,6 @@ We had to get the configuration out of the Control Center, and the existing modu
 ## Getting Started
 
 1. Create three projects
-  - Your REDCap Administrator will need to do minor configuration for these projects in the Control Center
-  - To do so, they must first be added to all 3 projects (a requirement for the project dropdown in the module config)
-  - Then have them assign each project to their respective option in the module config
-
-![Control Center Config](imgs/control-center-config.png)
 
 ### Box Project Requirements
 
@@ -141,13 +90,16 @@ complete, Complete
 
 > **NOTE:** This section can only be completed by REDCap Administrators.
 
-1. In the Control Center on the left hand toolbar push manage next to the external modules.
-  - If you have not already enabled this module you need to download and enable the module from the REDCap Repo.
-  - Once the module is enabled select the appropriate projects for the project type.
+- If you have not already enabled this module, download and enable the module from the REDCap Repo.
+- Once the module is enabled, select the appropriate projects for the project type.
+- To do so, you must first be added to all 3 projects in the User Rights (a requirement for the project dropdown in the module config)
+- Then assign each project to their respective option in the module config
 
-Push the plus (`+`) button to support additional sets of configurations.
+> **NOTE:** You can push the plus (`+`) button to support additional sets of configurations.
 
 ![Control Center Config](imgs/control-center-config-2.png)
+
+![Control Center Config](imgs/control-center-config.png)
 
 ### Project Setup
 
@@ -161,6 +113,7 @@ In addition to the required fields for each project, you may add any additional 
 
 - The order of the fields in the instrument will be the order they show on the dashboards and in the exports
 - Fields marked required* will also be required on the Specimen Entry Dashboard
+- Missing Data Codes are supported (if configured in the Specimen project) and can be enabled on a per-field basis in the custom module configuration page.
 
 ### Project Configuration
 
@@ -185,6 +138,10 @@ Many additional customizations can be found here.
 - **Pre-fill by Nomenclature**
   - Has the ability to configure how to find matching specimens and to pre-fill the Specimen Entry Form fields
   - Example: You have entered all the data for aliquot 1.  If the pre-fill is enabled and you scan in aliquot 2, all the data such as dates, initials, volume etc., will fill in for you without extra data entry.
+- **Missing Data Codes**
+  - This option allows you to utilize the built-in Missing Data Codes functionality.
+  - ![Missing Data Codes](imgs/specimen-entry-mdc.png)
+  - ![Missing Data Codes](imgs/specimen-entry-mdc-2.png)
 - **Confirm**
   - Allows you to set up a double-entry confirmation.  This is useful on MRN's, or SUBJECT ID's to help ensure data entry accuracy.
 - **Not in the Future**
@@ -209,7 +166,7 @@ Displays a list of box information in a collapsible section above the Box Previe
 
 **Shipment list**
 
-The are the fields to be displayed when searching and displaying shipment information on the Shipment Dashboard
+The fields to be displayed when searching and displaying shipment information on the Shipment Dashboard
 
 **Shipment box list**
 

@@ -124,7 +124,7 @@ trait ShipmentUtils {
                 $shipment_fields[$fk] = true;
             }
         }
-        // boxfields
+        // box fields
         $box_fields = [];
         foreach ($state["fields"]["box"] as $fk => $fv) {
             if ($fv["shipment-manifest"]) {
@@ -141,19 +141,26 @@ trait ShipmentUtils {
 
         $result = [];
         // prep shipment fields
-        $shipment_data = array_intersect_key($shipment, $shipment_fields);
-        foreach ($shipment_data as $key => $val) {
-            $shipment_data[$key] = $this->getFieldDisplayValue($this->getShipmentProject(), $key, $val)["value"];
+        $shipment_data = [];
+        foreach ($shipment_fields as $key => $val) {
+//            $shipment_data[$key] = $this->getFieldDisplayValue($this->getShipmentProject(), $key, $val)["value"];
+            $shipment_data[($state["fields"]["shipment"][$key]["shipment-manifest-header"] ?? $key)] = $shipment[$key];
         }
         // let's manually inject the study_name value to be the 2nd column in the output
         $this->array_splice_assoc($shipment_data, 1, 0, [ "study_name" => $state["general"]["study_name"] ]);
 
         foreach($boxes as $i => $box) {
             // prep box fields
-            $box_data = array_intersect_key($box, $box_fields);
+            $box_data = [];
+            foreach ($box_fields as $key => $val) {
+                $box_data[($state["fields"]["box"][$key]["shipment-manifest-header"] ?? $key)] = $box[$key];
+            }
             foreach ($specimens[$box["record_id"]] as $j => $specimen) {
                 // prep specimen fields
-                $specimen_data = array_intersect_key($specimen, $specimen_fields);
+                $specimen_data = [];
+                foreach ($specimen_fields as $key => $val) {
+                    $specimen_data[($state["fields"]["specimen"][$key]["shipment-manifest-header"] ?? $key)] = $specimen[$key];
+                }
                 // merge all parts
                 $result[] = array_merge($shipment_data, $box_data, $specimen_data);
             }
