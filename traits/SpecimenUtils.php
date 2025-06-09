@@ -82,6 +82,37 @@ AND field_name = 'box_record_id'
         return $result;
     }
 
+    function regexGroupReplace($regex, $input, $groups = []) {
+        // ensure the regex is wrapped!
+        $php_regex = $regex;
+        if (stripos($php_regex, '/') === false) $php_regex = "/$php_regex/";
+        // Match the input string against the pattern
+        if (!preg_match($php_regex, $input, $input_matches)) {
+            // if we cannot parse due to invalid regex or mismatch
+            // return the original regex, as is
+            return $regex;
+        }
+        // ensure groups is an array
+        if (!is_array($groups)) { $groups = [ $groups ]; }
+        // build 2 arrays of patterns and replacement values
+        $patterns = [];
+        $replacements = [];
+        foreach ($groups as $g) {
+            if (isset($input_matches[$g])) {
+                // one pattern for each replacement
+                $patterns[] = "/\(\?<$g>(\((?>[^()]+|(?1))*\)|[^()]+)*\)/";
+                // value to replace the pattern
+                $replacements[] = $input_matches[$g];
+            }
+        }
+        // the 2nd pattern clears out any remaining capture group syntax that isn't sql compatible
+        // this will leave the regex clean of any capture group syntax
+        $patterns[] = "(\?\<\w*\>)";
+        $replacements[] = "";
+        // use the regex value instead of the raw search value
+        return preg_replace($patterns, $replacements, $regex);
+    }
+
     /* REQUEST HANDLERS */
 
     function handleGetSpecimen(string $record_id, array $system_config): array
@@ -135,26 +166,14 @@ AND field_name = 'box_record_id'
                 $match_config = $state["fields"]["specimen"]["specimen_name"]["extras"]["matchPrefill"];
                 if (!empty($match_config) && $match_config["enabled"] === true) {
                     if (!empty($match_config["groups"]) && !empty($match_config["fields"])) {
-                        // leverage the specimen_name_regex to build the REGEX for specimen search
-                        $replacements = [];
-                        $patterns = [];
                         // swap the condition to REGEXP
                         $sql_condition_1 = "AND d1.value REGEXP ?";
-                        foreach ($match_config["groups"] as $group) {
-                            if (isset($response["parsed_value"][$group])) {
-                                // fill the list to replace the capture groups we want to match against
-                                $replacements[] = $response["parsed_value"][$group];
-                                // one pattern for each replacement
-                                // # delimits the pattern since we need to treat the () as literals
-                                $patterns[] = "#\(\?\<$group\>.*?\)#";
-                            }
-                        }
-                        // the 2nd pattern clears out any remaining capture group syntax that isn't sql compatible
-                        // this will leave the regex clean of any capture group syntax
-                        $patterns[] = "(\?\<\w*\>)";
-                        $replacements[] = "";
-                        // use the regex value instead of the raw search value
-                        $sql_value_1 = preg_replace($patterns, $replacements, $state["general"]["specimen_name_regex"]);
+                        // replace all target groups with the values found in the scanned specimen name
+                        $sql_value_1 = $this->regexGroupReplace(
+                            $state["general"]["specimen_name_regex"],
+                            $search_value,
+                            $match_config["groups"]
+                        );
                     } else {
                         $response["warnings"][] = "Pre-fill by Nomenclature enabled but ignored, due to incomplete configuration.";
                     }
@@ -168,7 +187,11 @@ JOIN $dt_specimen d2 ON d1.project_id = d2.project_id AND d1.record = d2.record 
 WHERE d1.project_id = ?
 AND d1.field_name = 'specimen_name'
 {$sql_condition_1}";
-
+                // TODO debug
+                $response["sql_params"] = [
+                    $this->getSpecimenProject()->project_id,
+                    $sql_value_1
+                ];
                 // execute the sql query
                 $specimen_query_result = $this->query($sql,
                     [

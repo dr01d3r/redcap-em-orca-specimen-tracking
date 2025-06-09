@@ -1,5 +1,5 @@
 <script setup>
-import {ref, onMounted, computed, watch} from 'vue';
+import {ref, onMounted, onBeforeUnmount, computed, watch, nextTick} from 'vue';
 import { isEmpty, isNotEmpty } from '@primeuix/utils/object';
 import {useToast} from 'primevue/usetoast';
 import ModuleUtils from '../ModuleUtils';
@@ -26,7 +26,53 @@ const userid = ref(OrcaSpecimenTracking().userid);
 const popRegex = ref();
 const toggleRegexPop = (event) => {
     popRegex.value.toggle(event);
+};
+
+const tmpManifestField = ref({
+    project_name: null,
+    field_name: null,
+    custom_header: null
+});
+const popManifest = ref();
+const popManifestIsOpen = ref(false);
+const onPopManifestHide = (e) => {
+    // reset the temp object
+    tmpManifestField.value.project_name = null;
+    tmpManifestField.value.field_name = null;
+    tmpManifestField.value.custom_header = null;
+    // set local var to false
+    popManifestIsOpen.value = false;
 }
+const togglePopManifest = (event, p, f) => {
+    // first see if its open
+    if (popManifestIsOpen.value) {
+        // hide it always
+        popManifest.value.hide();
+        // then if we have the same target, prevent further processing
+        if (tmpManifestField.value.project_name === p &&
+            tmpManifestField.value.field_name === f) {
+            return;
+        }
+    }
+    // if we got this far, we're opening in a new context
+    // set the context and open the popover, but do so on the next tick to not conflict with a possible hide call
+    nextTick(() => {
+        tmpManifestField.value.project_name = p;
+        tmpManifestField.value.field_name = f;
+        tmpManifestField.value.custom_header = state.value['fields'][p][f]['shipment-manifest-header'];
+        popManifest.value.show(event)
+    });
+};
+const saveManifestHeader = (event) => {
+    let p = tmpManifestField.value.project_name;
+    let f = tmpManifestField.value.field_name;
+    if (isEmpty(tmpManifestField.value.custom_header)) {
+        delete state.value['fields'][p][f]['shipment-manifest-header'];
+    } else {
+        state.value['fields'][p][f]['shipment-manifest-header'] = tmpManifestField.value.custom_header;
+    }
+    popManifest.value.hide(event);
+};
 
 const debug = ref();
 const errors = ref([]);
@@ -146,6 +192,10 @@ const afterDatePreviewMessage = computed(() => {
     return null;
 });
 
+const saveButtonText = computed(() => {
+    return OrcaSpecimenTracking().cmdKey + '+S';
+});
+
 const toggleConfigSections = (p) => {
     if (p === 'all') {
         collapseAll.value = !collapseAll.value;
@@ -237,9 +287,22 @@ const initializeDashboard = () => {
         });
 };
 
+const onKeyDown = (event) => {
+    if (event.key === 's' && (event.ctrlKey || event.metaKey)) {
+        event.preventDefault();
+        saveModuleConfig();
+    }
+};
+
 onMounted(() => {
     initializeDashboard();
+    // event handler for global saves
+    document.addEventListener('keydown', onKeyDown);
 });
+onBeforeUnmount(() => {
+    // event handler for global saves
+    document.removeEventListener('keydown', onKeyDown);
+})
 </script>
 
 <template>
@@ -336,7 +399,7 @@ onMounted(() => {
                             <tbody>
                                 <template v-for="p in [ 'specimen', 'box', 'shipment' ]">
                                     <tr class="table-dark">
-                                        <td colspan="12" class="border-2 border-secondary-subtle">
+                                        <td colspan="13" class="border-2 border-secondary-subtle">
                                             <div class="d-flex">
                                                 <strong>{{ projects[p]['app_title'] }}</strong>
                                                 <button class="btn btn-primary btn-xs ms-auto" @click="toggleConfigSections(p)">
@@ -363,6 +426,7 @@ onMounted(() => {
                                         <th class="border-bottom">Shipment List</th>
                                         <th class="border-bottom">Shipment Box List</th>
                                         <th class="border-bottom">Shipment Manifest</th>
+                                        <th class="border-bottom">Custom Header</th>
                                     </tr>
                                     <tr v-for="(v, k) in metadata[p]" v-if="!collapseTable[p]">
                                         <th class="font-monospace border-0 border-top border-bottom border-secondary">
@@ -458,6 +522,16 @@ onMounted(() => {
                                                 <i :class="toggleIcon(state['fields'][p][k]['shipment-manifest'])"></i>
                                             </button>
                                         </td>
+                                        <!-- shipment-manifest-header -->
+                                        <td class="p-1 align-middle table-info border-0 border-top border-bottom border-info text-center">
+                                            <button v-if="v['config']['shipment-manifest']['enabled']" @click="(event) => togglePopManifest(event, p, k)"
+                                                    class="btn py-0 m-0" type="button"
+                                                    v-tooltip.left="state['fields'][p][k]['shipment-manifest-header']"
+                                                    :class="[ isNotEmpty(state['fields'][p][k]['shipment-manifest-header']) ? 'btn-success' : 'btn-outline-dark' ]"
+                                                    :disabled="!state['fields'][p][k]['shipment-manifest']">
+                                                <i class="fas fa-edit"></i>
+                                            </button>
+                                        </td>
                                     </tr>
                                 </template>
                             </tbody>
@@ -473,7 +547,7 @@ onMounted(() => {
                 </div>
             </div>
             <div class="card-footer d-flex gap-2 justify-content-end">
-                <button class="btn btn-primary" @click="saveModuleConfig"><i class="fas fa-save">&nbsp;</i>Save Changes</button>
+                <button class="btn btn-primary" @click="saveModuleConfig"><i class="fas fa-save">&nbsp;</i>Save (<span class="small font-monospace">{{ saveButtonText }}</span>)</button>
             </div>
         </div>
 
@@ -631,10 +705,25 @@ onMounted(() => {
                         <div v-if="sk === 'confirm'" class="card">
                             <div class="card-header d-flex align-items-start">
                                 <div class="flex-fill me-3">
-                                    <h4>Confirm </h4>
+                                    <h4>Confirm</h4>
                                     <hr class="my-1" />
                                     <p>To confirm correctness during data entry, <code>[{{ selectedEFM['field_name'] }}]</code> must be entered twice.</p>
                                     <p><strong>Note:</strong> It is not recommended to use this feature on fields that may get pre-filled in any way, or are configured to use Default Value/Batch Mode - doing so may have unintended side effects.</p>
+                                </div>
+                                <button class="fs-2 btn border-0 rounded-0" type="button"
+                                        @click="() => sv['enabled'] = !sv['enabled']"
+                                >
+                                    <i :class="toggleIcon(sv['enabled'])"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <!-- missing_data_codes -->
+                        <div v-if="sk === 'missingDataCodes'" class="card">
+                            <div class="card-header d-flex align-items-start">
+                                <div class="flex-fill me-3">
+                                    <h4>Missing Data Codes</h4>
+                                    <hr class="my-1" />
+                                    <p>This option allows you to utilize the built-in Missing Data Codes functionality.</p>
                                 </div>
                                 <button class="fs-2 btn border-0 rounded-0" type="button"
                                         @click="() => sv['enabled'] = !sv['enabled']"
@@ -760,6 +849,18 @@ onMounted(() => {
                     <a href="https://regex101.com/r/zGlzTU/1" rel="noopener" target="_blank" class="btn btn-outline-primary"><i class="fas fa-external-link-alt">&nbsp;</i>Box Example</a>
                     <a href="https://regex101.com/r/KSD5Ry/1" rel="noopener" target="_blank" class="btn btn-outline-primary"><i class="fas fa-external-link-alt">&nbsp;</i>Specimen Example</a>
                 </div>
+            </div>
+        </Popover>
+
+        <Popover ref="popManifest" @show="() => popManifestIsOpen = true" @hide="() => popManifestIsOpen = false" style="width: 20rem;">
+            <div class="d-flex flex-column gap-2">
+                <div class="fw-bold">Custom Shipment Manifest Header</div>
+                <div class="input-group">
+                    <input autofocus type="text" class="form-control text-danger font-monospace" v-model="tmpManifestField.custom_header"
+                           @keydown.enter="saveManifestHeader" @focusin="$event.target.select()" />
+                    <button class="btn btn-dark" @click="saveManifestHeader"><i class="fas fa-check"></i></button>
+                </div>
+                <div class="fst-italic">The field name [<span class="text-danger font-monospace fw-bold">{{ tmpManifestField.field_name }}</span>] will be used when no value is specified.</div>
             </div>
         </Popover>
 

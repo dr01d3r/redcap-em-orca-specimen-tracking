@@ -175,21 +175,28 @@ const canEnterSpecimens = computed(() => {
 const canEditSpecimens = computed(() => {
     return !isReadOnly.value && !isPlateStatusClosed.value;
 });
+const isMissingDataCode = (v) => {
+    return (isNotEmpty(v) && isNotEmpty(config.value['missing_data_codes'][v]));
+};
 const specimenDisplayValue = (f, v) => {
     if (isNotEmpty(v)) {
         try {
             let dv = v;
             let fm = config.value?.fields?.specimen[f] ?? {};
-            switch (fm['field_type']) {
-                case 'radio':
-                case 'dropdown':
-                    dv = fm['choices'][v];
-                    break;
-                case 'date':
-                case 'datetime':
-                    // reformat to configured format
-                    dv = ModuleUtils.formatDate(v, fm['validation']['type']);
-                    break;
+            if (isMissingDataCode(v)) {
+                dv = config.value['missing_data_codes'][v];
+            } else {
+                switch (fm['field_type']) {
+                    case 'radio':
+                    case 'dropdown':
+                        dv = fm['choices'][v];
+                        break;
+                    case 'date':
+                    case 'datetime':
+                        // reformat to configured format
+                        dv = ModuleUtils.formatDate(v, fm['validation']['type']);
+                        break;
+                }
             }
             return dv;
         } catch (e) {}

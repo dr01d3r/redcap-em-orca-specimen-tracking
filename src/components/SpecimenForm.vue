@@ -95,6 +95,10 @@ const defaultSpecimenState = () => {
 
 // VUELIDATE
 const noFutureDateTime = (value, vm, model) => {
+    // first check if date value is a missing_data_code
+    if (isMissingDataCode(value)) {
+        return true;
+    }
     // DateTime.fromSQL is able to parse both date and datetime fields
     // https://moment.github.io/luxon/#/parsing?id=sql
     return isEmpty(value) || DateTime.fromSQL(value) <= DateTime.now();
@@ -102,12 +106,16 @@ const noFutureDateTime = (value, vm, model) => {
 const sameAsConfirm = (field_name) => helpers.withParams(
     { type: 'sameAsConfirm', value: field_name },
     (value, vm, model) => {
-        return value === vm[`confirm_${field_name}`];
+        return (hasMissingDataCodeEnabled(field_name) && isMissingDataCode(value)) || value === vm[`confirm_${field_name}`];
     }
 );
 
 const afterDateMinMax = (field_name, extras) => helpers.withParams({}, (value, vm, model) => {
         if (isNotEmpty(value) && isNotEmpty(extras) && isNotEmpty(specimen.value[extras['target']])) {
+            // first check if either date value is a missing_data_code
+            if (isMissingDataCode(value) || isMissingDataCode(specimen.value[extras['target']])) {
+                return true;
+            }
             // DateTime.fromSQL is able to parse both date and datetime fields
             // https://moment.github.io/luxon/#/parsing?id=sql
             let d1 = DateTime.fromSQL(value);
@@ -140,6 +148,10 @@ const afterDateMinMax = (field_name, extras) => helpers.withParams({}, (value, v
 );
 const afterDateTime = (extras) => helpers.withParams({}, (value, vm, model) => {
         if (isNotEmpty(value) && isNotEmpty(extras) && isNotEmpty(specimen.value[extras['target']])) {
+            // first check if either date value is a missing_data_code
+            if (isMissingDataCode(value) || isMissingDataCode(specimen.value[extras['target']])) {
+                return true;
+            }
             // DateTime.fromSQL is able to parse both date and datetime fields
             // https://moment.github.io/luxon/#/parsing?id=sql
             let d1 = DateTime.fromSQL(value);
@@ -154,9 +166,10 @@ const specimenMatchesBox = (value, vm, model) => {
     let specimen_match = value.match(model.config['general']['specimen_name_regex']);
     let box_match = model.box_info['box_name'].match(model.config['general']['box_name_regex']);
     // ignore if it's not a match - either empty or base regex validation failed
-    if (specimen_match === null || box_match === null) return true;
+    if (isEmpty(specimen_match) || isEmpty(box_match)) return true;
     let is_valid = true;
     for (const [key, value] of Object.entries(box_match.groups)) {
+        if (isEmpty(value)) continue;
         let a = specimen_match.groups[key];
         let b = box_match.groups[key];
         is_valid = is_valid && (isEmpty(a) || a === b);
@@ -166,6 +179,7 @@ const specimenMatchesBox = (value, vm, model) => {
 
 const userid = ref(OrcaSpecimenTracking().userid);
 
+const mdcs = ref({});
 const dt = ref();
 const specimen = ref(defaultSpecimenState());
 const fields = ref({});
@@ -226,7 +240,7 @@ const rules = computed(() => {
                     if (fv['field_type'] === 'datetime') val_info = config.validation['datetime_ymd'];
                     // apply validation to the rules
                     sr[fv['validation']['type']] = helpers.withMessage(val_info['validation_label'],
-                        (value) => isEmpty(value) || value.match(val_info['regex_js'].replace(/^\/|\/$/g, ''))
+                        (value) => isEmpty(value) || isMissingDataCode(value) || value.match(val_info['regex_js'].replace(/^\/|\/$/g, ''))
                     );
                 }
                 // time to handle the extras config
@@ -284,8 +298,21 @@ watchEffect(() => {
         }
         inputRefMap.value = Object.assign({}, map);
     }
-})
-
+});
+const initMissingDataCodeWatch = (f) => {
+    if (isNotEmpty(f) && isNotEmpty(config['missing_data_codes'])) {
+        for (let k in f['specimen']) {
+            if (hasMissingDataCodeEnabled(k)) {
+                watch(
+                    () => specimen.value[k],
+                    (value) => {
+                        mdcs.value[k] = isMissingDataCode(value);
+                    }
+                )
+            }
+        }
+    }
+};
 
 // METHODS
 const initSpecimen = (f) => {
@@ -295,6 +322,7 @@ const initSpecimen = (f) => {
     if (isNotEmpty(f)) {
         for (let k in f['specimen']) {
             let fv = f['specimen'][k];
+
             // special handling for datetime, due to component datetime format
             // Component -> 2024-10-01T15:00
             // REDCap    -> 2024-10-01 15:00
@@ -314,10 +342,15 @@ const initSpecimen = (f) => {
                 // data state
                 o[k] = null;
             }
+            // missing_data_codes
+            if (isNotEmpty(config['missing_data_codes'])) {
+                mdcs.value[k] = false;
+            }
         }
     }
     dt.value = Object.assign({}, d);
     specimen.value = Object.assign(defaultSpecimenState(), o);
+    initMissingDataCodeWatch(f);
 };
 
 const searchSpecimenCallback = (data) => {
@@ -510,7 +543,30 @@ const focusNext = (current) => {
     if (isNotEmpty(inputRefs.value[next])) {
         nextTick(() => inputRefs.value[next].focus());
     }
-} ;
+};
+
+const hasMissingDataCodeEnabled = (k) => {
+    return isNotEmpty(config['save-state']['specimen'][k]['extras'])
+        && isNotEmpty(config['save-state']['specimen'][k]['extras']['missingDataCodes'])
+        && config['save-state']['specimen'][k]['extras']['missingDataCodes']['enabled']
+    ;
+};
+
+const isMissingDataCode = (v) => {
+    return (isNotEmpty(v) && isNotEmpty(config['missing_data_codes'][v]));
+};
+
+const clearMissingDataCode = (f) => {
+    specimen.value[f] = null;
+};
+
+const setMissingDataCode = (f, v) => {
+    specimen.value[f] = v;
+};
+
+const getREDCapImageResource = (filename) => {
+    return `${window.app_path_images}${filename}`;
+}
 
 const resetSpecimen = () => {
     // clear any warnings before field loop
@@ -662,7 +718,7 @@ onMounted(() => {
                 <hr/>
                 <ul>
                     <template v-for="error in errors">
-                        <li>{{ error }}</li>
+                        <li v-html="error"></li>
                     </template>
                 </ul>
             </div>
@@ -700,8 +756,24 @@ onMounted(() => {
                             <div class="col">
                                 <label class="form-label mb-1">{{ fv['field_label'] }}<span v-if="fv['required']" class="text-danger">*</span></label>
                             </div>
+                            <div class="col-auto" v-if="hasMissingDataCodeEnabled(fk)">
+                                <div class="dropdown">
+                                    <button class="btn btn-xs btn-link dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                        <img class="missingDataButton" :src="getREDCapImageResource('missing.png')" title="Mark field as missing" alt="" />
+                                    </button>
+                                    <ul class="dropdown-menu">
+                                        <li v-for="(mv, mk) in config['missing_data_codes']"><div class="dropdown-item" @click="() => setMissingDataCode(fk, mk)">{{ mv }}</div></li>
+                                    </ul>
+                                </div>
+                            </div>
                         </div>
-                        <template v-if="fv['field_type']==='text'">
+                        <template v-if="mdcs[fk] === true">
+                            <div class="input-group">
+                                <input type="text" class="form-control border-danger bg-danger-subtle text-danger" v-model="specimen[fk]" disabled="disabled" />
+                                <button class="btn btn-outline-danger" @click="() => clearMissingDataCode(fk)"><i class="fas fa-times"></i></button>
+                            </div>
+                        </template>
+                        <template v-else-if="fv['field_type']==='text'">
                             <div class="input-group">
                                 <input type="text" class="form-control" :id="fk" ref="specimen-input" v-model="specimen[fk]" autocomplete="off"
                                         @keyup.enter="focusNext(fk)" />
@@ -869,5 +941,8 @@ onMounted(() => {
 }
 textarea {
     font-size: .85rem;
+}
+.dropdown-item {
+    cursor: pointer;
 }
 </style>
