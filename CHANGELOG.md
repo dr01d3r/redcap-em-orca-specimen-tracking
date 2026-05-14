@@ -1,3 +1,6 @@
+## 2.0.6
+- Significantly improved performance of the Specimen Entry Dashboard search functionality.
+  - Queries that used to take upwards of a minute now only take a fraction of a second.
 ## 2.0.5
 - Added support for Missing Data Code usage during Specimen Entry
 - Shipment Manifest Export headers can now be customized in the configuration dashboard.
