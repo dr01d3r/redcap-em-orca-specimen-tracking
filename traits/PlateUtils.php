@@ -167,27 +167,43 @@ trait PlateUtils {
         // get the data_table context
         $dt_d = \Records::getDataTable($this->getBoxProject()->project_id);
         $st_s = \Records::getDataTable($this->getSpecimenProject()->project_id);
+
         // define some conditional logic
-        $sql_joins_1 = "";
-        $sql_joins_2 = "";
-        $sql_filter_1 = "";
-        $sql_filter_2 = "";
+        $box_join_1 = "";
+        $box_filter_1 = "";
+        $box_filter_2 = "";
+
+        $specimen_cte = "";
+        $specimen_join = "";
+
         if ($exclude_closed) {
             // box project join for box status
-            $sql_joins_1 = "JOIN {$dt_d} d2 ON d1.project_id = d2.project_id AND d1.record = d2.record AND d2.field_name = 'box_status'";
+            $box_join_1 = "JOIN {$dt_d} b2 ON b1.project_id = b2.project_id AND b1.record = b2.record AND b2.field_name = 'box_status'";
             // where condition for box status
-            $sql_filter_1 = "AND d2.value = 'available'";
+            $box_filter_1 = "AND b2.value = 'available'";
         }
         if (!empty($search)) {
-            // include the specimen project joins
-            $sql_joins_2 = "LEFT JOIN {$st_s} s1 ON s1.project_id = ? AND s1.field_name = 'box_record_id' AND d1.record = s1.value
-LEFT JOIN {$st_s} s2 ON s1.project_id = s2.project_id AND s1.record = s2.record AND s2.field_name = 'specimen_name'";
-            // where condition for box name and specimen name search
-            $sql_filter_2 = "AND (d1.value LIKE ? OR s2.value LIKE ?)";
+            // specimen project cte
+            $specimen_cte = ", a AS (
+		SELECT a2.value 'record'
+		FROM {$st_s} a1
+		JOIN {$st_s} a2 ON a1.project_id = a2.project_id AND a1.record = a2.record AND a2.field_name = 'box_record_id'
+		WHERE a1.project_id = ?
+		AND a1.field_name = 'specimen_name'
+		AND a1.value LIKE ? 
+        GROUP BY record
+	)";
+            // specimen project final join/select
+            $specimen_join = "UNION SELECT record FROM a";
+
+            // box filter
+            $box_filter_2 = "AND b1.value LIKE ?";
+
+            // updated query params
             $sql_params = [
-                $this->getSpecimenProject()->project_id,
                 $this->getBoxProject()->project_id,
                 "%$search%",
+                $this->getSpecimenProject()->project_id,
                 "%$search%"
             ];
         } else {
@@ -196,15 +212,21 @@ LEFT JOIN {$st_s} s2 ON s1.project_id = s2.project_id AND s1.record = s2.record 
             ];
         }
         // execute the query
-        $sql_result = $this->query("SELECT d1.record
-FROM {$dt_d} d1
-{$sql_joins_1}
-{$sql_joins_2}
-WHERE d1.project_id = ?
-AND d1.field_name = 'box_name'
-{$sql_filter_1}
-{$sql_filter_2}
-GROUP BY d1.record", $sql_params);
+        $sql_result = $this->query("SELECT * FROM (WITH
+	b AS (
+		SELECT b1.record
+		FROM {$dt_d} b1
+		{$box_join_1}
+		WHERE b1.project_id = ?
+		AND b1.field_name = 'box_name'
+		{$box_filter_1}
+		{$box_filter_2}
+    )
+    {$specimen_cte}
+    SELECT record FROM b
+    {$specimen_join}
+    GROUP BY record
+) as x", $sql_params);
         // use the record_ids to grab all the box data
         $records = [];
         while ($r = db_fetch_assoc($sql_result)) {
