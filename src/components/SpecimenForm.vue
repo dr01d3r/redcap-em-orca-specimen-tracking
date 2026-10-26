@@ -710,213 +710,230 @@ onMounted(() => {
 </script>
 
 <template>
-    <BlockUI :blocked="isLoading">
-        <template v-if="isNotEmpty(errors)">
-            <div class="alert alert-danger p-4">
-                <h1 class="display-4">Critical Errors Exist!</h1>
-                <p class="lead mb-0">This dashboard has been disabled until all critical errors have been resolved.</p>
-                <hr/>
-                <ul>
-                    <template v-for="error in errors">
-                        <li v-html="error"></li>
-                    </template>
-                </ul>
-            </div>
-        </template>
-
-        <!-- MAIN CONTENT AREA -->
-        <div class="row">
-            <!-- specimen - name display -->
-            <div class="col-12 mb-2">
-                <label class="form-label">{{ config['fields']['specimen']['specimen_name']['field_label'] }}<span v-if="mode!=='edit'" class="text-danger">*</span></label>
-                <template v-if="mode==='edit'">
-                    <input type="text" class="form-control bg-dark-subtle text-secondary" ref="specimen_name_input" v-model="specimen.specimen_name" disabled="disabled" />
+    <template v-if="isNotEmpty(errors)">
+        <div class="alert alert-danger p-4">
+            <h1 class="display-4">Critical Errors Exist!</h1>
+            <p class="lead mb-0">This dashboard has been disabled until all critical errors have been resolved.</p>
+            <hr/>
+            <ul>
+                <template v-for="error in errors">
+                    <li v-html="error"></li>
                 </template>
-                <template v-else>
-                    <input type="text" class="form-control" ref="specimen_name_input" v-model="specimen.specimen_name" autocomplete="off"
-                           @keydown.tab="specimenScanned" @keyup.enter="specimenScanned"
-                    />
-                    <div class="alert alert-danger mt-1 mb-0 px-3 py-2" v-if="v$.specimen_name && v$.specimen_name.$error">
-                        <strong>Validation Error:</strong>
-                        <ul class="mb-0">
-                            <li v-for="error of v$.specimen_name.$errors" :key="error.$uid" v-html="error.$message"></li>
-                        </ul>
-                    </div>
-                </template>
-            </div>
-            <!-- FIELD LOOP - FIELDS -->
-            <template v-for="(fv, fk) in fields['specimen']">
-                <template v-if="config['save-state']['specimen'][fk]['specimen-entry-form'] && !fv['config']['specimen-entry-form']['required']">
-                    <!-- {{ fk }} -->
-                    <div class="pt-1 pb-2 rounded-0" :class="[
-                        config['save-state']['specimen'][fk]['batch-mode'] && batchEnabled ? 'batch-mode' : '',
-                        fv['field_type']==='notes' ? 'col-12 col-xl-6' : 'col-6'
-                    ]">
-                        <div class="row g-0" :id="`${fk}-labels`">
-                            <div class="col">
-                                <label class="form-label mb-1">{{ fv['field_label'] }}<span v-if="fv['required']" class="text-danger">*</span></label>
-                            </div>
-                            <div class="col-auto" v-if="hasMissingDataCodeEnabled(fk)">
-                                <div class="dropdown">
-                                    <button class="btn btn-xs btn-link dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                        <img class="missingDataButton" :src="getREDCapImageResource('missing.png')" title="Mark field as missing" alt="" />
-                                    </button>
-                                    <ul class="dropdown-menu">
-                                        <li v-for="(mv, mk) in config['missing_data_codes']"><div class="dropdown-item" @click="() => setMissingDataCode(fk, mk)">{{ mv }}</div></li>
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-                        <template v-if="mdcs[fk] === true">
-                            <div class="input-group">
-                                <input type="text" class="form-control border-danger bg-danger-subtle text-danger" v-model="specimen[fk]" disabled="disabled" />
-                                <button class="btn btn-outline-danger" @click="() => clearMissingDataCode(fk)"><i class="fas fa-times"></i></button>
-                            </div>
-                        </template>
-                        <template v-else-if="fv['field_type']==='text'">
-                            <div class="input-group">
-                                <input type="text" class="form-control" :id="fk" ref="specimen-input" v-model="specimen[fk]" autocomplete="off"
-                                        @keyup.enter="focusNext(fk)" />
-                                <template v-if="config['save-state']['specimen'][fk]['extras']['confirm']['enabled']">
-                                    <input type="text" class="form-control" :id="`confirm_${fk}`" ref="specimen-input" v-model="specimen[`confirm_${fk}`]" autocomplete="off"
-                                           @keyup.enter="focusNext(`confirm_${fk}`)"
-                                    />
-                                    <Teleport defer :to="`#${fk}-labels`">
-                                        <div class="col">
-                                            <label class="form-label mb-1">Confirm {{ fv['field_label'] }}<span v-if="fv['required']" class="text-danger">*</span></label>
-                                        </div>
-                                    </Teleport>
-                                </template>
-                                <template v-if="isNotEmpty(config['save-state']['specimen'][fk]['field-units'])">
-                                    <span class="input-group-text">{{ config['save-state']['specimen'][fk]['field-units'] }}</span>
-                                </template>
-                            </div>
-                        </template>
-                        <template v-else-if="fv['field_type']==='dropdown'">
-                            <select class="form-select" :id="fk" ref="specimen-input" v-model="specimen[fk]">
-                                <option value="">--</option>
-                                <option v-for="(ov, ok) in fv['choices']" :value="ok">{{ ov }}</option>
-                            </select>
-                        </template>
-                        <template v-else-if="fv['field_type']==='date'">
-                            <input type="date" class="form-control" v-model="specimen[fk]" :id="fk" ref="specimen-input" />
-                        </template>
-                        <template v-else-if="fv['field_type']==='datetime'">
-                            <input type="datetime-local" class="form-control" v-model="dt[fk]" :id="fk" ref="specimen-input" />
-                        </template>
-                        <template v-else-if="fv['field_type']==='notes'">
-                            <textarea rows="3" class="form-control" v-model="specimen[fk]" :id="fk" ref="specimen-input" />
-                        </template>
-                        <div class="alert alert-danger mt-1 mb-0 px-3 py-2" v-if="v$[fk] && v$[fk].$error">
-                            <strong>Validation Error:</strong>
-                            <ul class="mb-0">
-                                <li v-for="error of v$[fk].$errors" :key="error.$uid" v-html="error.$message"></li>
-                            </ul>
-                        </div>
-                    </div>
-                </template>
-            </template>
-        </div>
-        <!-- empty spacer row -->
-        <div class="row mt-2"></div>
-        <div class="alert alert-warning px-3 py-2" v-if="isNotEmpty(warnings)">
-            <strong>CAUTION:</strong> - The following warnings exist - review before saving!
-            <ul class="mb-0">
-                <li v-for="(v, k) in warnings" v-html="v"></li>
             </ul>
         </div>
-        <div class="row">
-            <div class="col d-grid mb-0">
-                <button type="button" class="btn btn-success" @click="trySaveSpecimen">
-                    <i class="fas fa-save"></i>&nbsp;Save
-                </button>
-            </div>
-            <div class="col d-grid mb-0" v-if="mode === 'new'">
-                <button type="button" class="btn btn-danger" @click="resetSpecimen" >
-                    <i class="fas fa-undo"></i>&nbsp;Reset
-                </button>
-            </div>
-            <div class="col d-grid mb-0" v-if="mode === 'new'">
-                <button type="button" class="btn btn-warning text-light" @click="() => batchEnabled = !batchEnabled" >
-                    <i class="fas fa-sync"></i>&nbsp;Batch Mode : {{ batchMode }}
-                </button>
-            </div>
-        </div>
-        <ConfirmDialog :group="`move-${uid}`" :style="{ width: '40rem' }" class="p-dialog-headless">
-            <template #container="{ message, acceptCallback, rejectCallback }">
-                <div class="card border-1 border-primary">
-                    <div class="card-header bg-secondary-subtle">
-                        <h5>Moving: [<span class="text-monospace text-danger">{{ message.header }}</span>]</h5>
-                    </div>
-                    <div class="card-body py-0">
-                        <table class="table text-center m-0">
-                            <thead>
-                            <tr>
-                                <th>From</th>
-                                <th><i class="fas fa-angle-double-right"></i></th>
-                                <th>To</th>
-                            </tr>
-                            </thead>
-                            <tbody>
-                            <tr>
-                                <td>{{ message.message.box.box_name }}</td>
-                                <th>BOX</th>
-                                <td>{{ box_info['box_name'] }}</td>
-                            </tr>
-                            <tr>
-                                <td>{{ message.message.specimen.box_position }}</td>
-                                <th>POS</th>
-                                <td>{{ box_position.position }}</td>
-                            </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="card-footer bg-secondary-subtle">
-                        <div class="d-flex gap-2 justify-content-end">
-                            <button type="button" class="btn btn-outline-dark" @click="rejectCallback" ref="moveCancelBtn">Cancel</button>
-                            <button type="button" class="btn btn-primary" @click="acceptCallback">Confirm</button>
-                        </div>
-                    </div>
+    </template>
+
+    <!-- MAIN CONTENT AREA -->
+    <div class="row">
+        <!-- specimen - name display -->
+        <div class="col-12 mb-2">
+            <label class="form-label">{{ config['fields']['specimen']['specimen_name']['field_label'] }}<span v-if="mode!=='edit'" class="text-danger">*</span></label>
+            <template v-if="mode==='edit'">
+                <input type="text" class="form-control bg-dark-subtle text-secondary" ref="specimen_name_input" v-model="specimen.specimen_name" disabled="disabled" />
+            </template>
+            <template v-else>
+                <input type="text" class="form-control" ref="specimen_name_input" v-model="specimen.specimen_name" autocomplete="off"
+                       @keydown.tab="specimenScanned" @keyup.enter="specimenScanned"
+                />
+                <div class="alert alert-danger mt-1 mb-0 px-3 py-2" v-if="v$.specimen_name && v$.specimen_name.$error">
+                    <strong>Validation Error:</strong>
+                    <ul class="mb-0">
+                        <li v-for="error of v$.specimen_name.$errors" :key="error.$uid" v-html="error.$message"></li>
+                    </ul>
                 </div>
             </template>
-        </ConfirmDialog>
-        <ConfirmDialog :group="`warnings-${uid}`" :style="{ width: '40rem' }" class="p-dialog-headless">
-            <template #container="{ message, acceptCallback, rejectCallback }">
-                <div class="card border-1 border-warning">
-                    <div class="card-header bg-warning-subtle">
-                        <h5 class="mb-0">{{ message.header }}</h5>
-                    </div>
-                    <div class="card-body py-0">
-                        <div>
-                            <p class="lead">The following <strong class="text-danger text-uppercase">warnings</strong> exist.  Please review prior to saving this specimen.</p>
-                            <ul>
-                                <li v-for="(v, k) in message.message" v-html="v"></li>
-                            </ul>
-                            <!-- check for a target note field for documenting the ack -->
-                            <div v-if="isNotEmpty(config['general']['warning_ack_field'])"
-                                 class="border-start border-3 border-warning bg-warning-subtle py-2 ps-2 mb-3">
-                                <strong class="text-warning">NOTE:</strong> Upon Save, the warnings will be appended to the <code>[{{ config['general']['warning_ack_field'] }}]</code> field.
+        </div>
+        <!-- FIELD LOOP - FIELDS -->
+        <template v-for="(fv, fk) in fields['specimen']">
+            <template v-if="config['save-state']['specimen'][fk]['specimen-entry-form'] && !fv['config']['specimen-entry-form']['required']">
+                <!-- {{ fk }} -->
+                <div class="pt-1 pb-2 rounded-0" :class="[
+                    config['save-state']['specimen'][fk]['batch-mode'] && batchEnabled ? 'batch-mode' : '',
+                    fv['field_type']==='notes' ? 'col-12 col-xl-6' : 'col-6'
+                ]">
+                    <div class="row g-0" :id="`${fk}-labels`">
+                        <div class="col">
+                            <label class="form-label mb-1">{{ fv['field_label'] }}<span v-if="fv['required']" class="text-danger">*</span></label>
+                        </div>
+                        <div class="col-auto" v-if="hasMissingDataCodeEnabled(fk)">
+                            <div class="dropdown">
+                                <button class="btn btn-xs btn-link dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <img class="missingDataButton" :src="getREDCapImageResource('missing.png')" title="Mark field as missing" alt="" />
+                                </button>
+                                <ul class="dropdown-menu">
+                                    <li v-for="(mv, mk) in config['missing_data_codes']"><div class="dropdown-item" @click="() => setMissingDataCode(fk, mk)">{{ mv }}</div></li>
+                                </ul>
                             </div>
                         </div>
                     </div>
-                    <div class="card-footer bg-warning">
-                        <div class="d-flex gap-2 justify-content-end">
-                            <button type="button" class="btn btn-outline-dark" @click="rejectCallback" ref="confirmWarningCancelBtn">Cancel</button>
-                            <button type="button" class="btn btn-success" @click="acceptCallback">Save</button>
+                    <template v-if="mdcs[fk] === true">
+                        <div class="input-group">
+                            <input type="text" class="form-control border-danger bg-danger-subtle text-danger" v-model="specimen[fk]" disabled="disabled" />
+                            <button class="btn btn-outline-danger" @click="() => clearMissingDataCode(fk)"><i class="fas fa-times"></i></button>
                         </div>
+                    </template>
+                    <template v-else-if="fv['field_type']==='text'">
+                        <div class="input-group">
+                            <input type="text" class="form-control" :id="fk" ref="specimen-input" v-model="specimen[fk]" autocomplete="off"
+                                    @keyup.enter="focusNext(fk)" />
+                            <template v-if="config['save-state']['specimen'][fk]['extras']['confirm']['enabled']">
+                                <input type="text" class="form-control" :id="`confirm_${fk}`" ref="specimen-input" v-model="specimen[`confirm_${fk}`]" autocomplete="off"
+                                       @keyup.enter="focusNext(`confirm_${fk}`)"
+                                />
+                                <Teleport defer :to="`#${fk}-labels`">
+                                    <div class="col">
+                                        <label class="form-label mb-1">Confirm {{ fv['field_label'] }}<span v-if="fv['required']" class="text-danger">*</span></label>
+                                    </div>
+                                </Teleport>
+                            </template>
+                            <template v-if="isNotEmpty(config['save-state']['specimen'][fk]['field-units'])">
+                                <span class="input-group-text">{{ config['save-state']['specimen'][fk]['field-units'] }}</span>
+                            </template>
+                        </div>
+                    </template>
+                    <template v-else-if="fv['field_type']==='dropdown'">
+                        <select class="form-select" :id="fk" ref="specimen-input" v-model="specimen[fk]">
+                            <option value="">--</option>
+                            <option v-for="(ov, ok) in fv['choices']" :value="ok">{{ ov }}</option>
+                        </select>
+                    </template>
+                    <template v-else-if="fv['field_type']==='date'">
+                        <input type="date" class="form-control" v-model="specimen[fk]" :id="fk" ref="specimen-input" />
+                    </template>
+                    <template v-else-if="fv['field_type']==='datetime'">
+                        <input type="datetime-local" class="form-control" v-model="dt[fk]" :id="fk" ref="specimen-input" />
+                    </template>
+                    <template v-else-if="fv['field_type']==='notes'">
+                        <textarea rows="3" class="form-control" v-model="specimen[fk]" :id="fk" ref="specimen-input" />
+                    </template>
+                    <div class="alert alert-danger mt-1 mb-0 px-3 py-2" v-if="v$[fk] && v$[fk].$error">
+                        <strong>Validation Error:</strong>
+                        <ul class="mb-0">
+                            <li v-for="error of v$[fk].$errors" :key="error.$uid" v-html="error.$message"></li>
+                        </ul>
                     </div>
                 </div>
             </template>
-        </ConfirmDialog>
-        <ProgressSpinner v-show="isLoading" class="overlay"/>
-    </BlockUI>
+        </template>
+    </div>
+    <!-- empty spacer row -->
+    <div class="row mt-2"></div>
+    <div class="alert alert-warning px-3 py-2" v-if="isNotEmpty(warnings)">
+        <strong>CAUTION:</strong> - The following warnings exist - review before saving!
+        <ul class="mb-0">
+            <li v-for="(v, k) in warnings" v-html="v"></li>
+        </ul>
+    </div>
+    <div class="row">
+        <div class="col d-grid mb-0">
+            <button type="button" class="btn btn-success" @click="trySaveSpecimen">
+                <i class="fas fa-save"></i>&nbsp;Save
+            </button>
+        </div>
+        <div class="col d-grid mb-0" v-if="mode === 'new'">
+            <button type="button" class="btn btn-danger" @click="resetSpecimen" >
+                <i class="fas fa-undo"></i>&nbsp;Reset
+            </button>
+        </div>
+        <div class="col d-grid mb-0" v-if="mode === 'new'">
+            <button type="button" class="btn btn-warning text-light" @click="() => batchEnabled = !batchEnabled" >
+                <i class="fas fa-sync"></i>&nbsp;Batch Mode : {{ batchMode }}
+            </button>
+        </div>
+    </div>
+    <ConfirmDialog :group="`move-${uid}`" :style="{ width: '40rem' }" class="p-dialog-headless">
+        <template #container="{ message, acceptCallback, rejectCallback }">
+            <div class="card border-1 border-primary">
+                <div class="card-header bg-secondary-subtle">
+                    <h5>Moving: [<span class="text-monospace text-danger">{{ message.header }}</span>]</h5>
+                </div>
+                <div class="card-body py-0">
+                    <table class="table text-center m-0">
+                        <thead>
+                        <tr>
+                            <th>From</th>
+                            <th><i class="fas fa-angle-double-right"></i></th>
+                            <th>To</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr>
+                            <td>{{ message.message.box.box_name }}</td>
+                            <th>BOX</th>
+                            <td>{{ box_info['box_name'] }}</td>
+                        </tr>
+                        <tr>
+                            <td>{{ message.message.specimen.box_position }}</td>
+                            <th>POS</th>
+                            <td>{{ box_position.position }}</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card-footer bg-secondary-subtle">
+                    <div class="d-flex gap-2 justify-content-end">
+                        <button type="button" class="btn btn-outline-dark" @click="rejectCallback" ref="moveCancelBtn">Cancel</button>
+                        <button type="button" class="btn btn-primary" @click="acceptCallback">Confirm</button>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </ConfirmDialog>
+    <ConfirmDialog :group="`warnings-${uid}`" :style="{ width: '40rem' }" class="p-dialog-headless">
+        <template #container="{ message, acceptCallback, rejectCallback }">
+            <div class="card border-1 border-warning">
+                <div class="card-header bg-warning-subtle">
+                    <h5 class="mb-0">{{ message.header }}</h5>
+                </div>
+                <div class="card-body py-0">
+                    <div>
+                        <p class="lead">The following <strong class="text-danger text-uppercase">warnings</strong> exist.  Please review prior to saving this specimen.</p>
+                        <ul>
+                            <li v-for="(v, k) in message.message" v-html="v"></li>
+                        </ul>
+                        <!-- check for a target note field for documenting the ack -->
+                        <div v-if="isNotEmpty(config['general']['warning_ack_field'])"
+                             class="border-start border-3 border-warning bg-warning-subtle py-2 ps-2 mb-3">
+                            <strong class="text-warning">NOTE:</strong> Upon Save, the warnings will be appended to the <code>[{{ config['general']['warning_ack_field'] }}]</code> field.
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer bg-warning">
+                    <div class="d-flex gap-2 justify-content-end">
+                        <button type="button" class="btn btn-outline-dark" @click="rejectCallback" ref="confirmWarningCancelBtn">Cancel</button>
+                        <button type="button" class="btn btn-success" @click="acceptCallback">Save</button>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </ConfirmDialog>
+
+    <!-- BLOCKING "WORKING" OVERLAY -->
+    <Dialog v-model:visible="isLoading"
+            modal
+            :dismissable-mask="false"
+            :closable="false"
+            pt:root:class="border-0 bg-transparent shadow-none"
+            pt:mask:class="bg-dark bg-opacity-50 backdrop-blur"
+    >
+        <template #container>
+            <div class="d-flex flex-column align-items-center justify-content-center p-3">
+                <ProgressSpinner
+                    stroke-width="4"
+                    animation-duration=".8s"
+                    aria-label="Loading content"
+                />
+            </div>
+        </template>
+    </Dialog>
+
     <pre v-if="debug" class="mt-3">{{ debug }}</pre>
 </template>
 
 <style lang="scss" scoped>
-@import "../node_modules/bootstrap/scss/functions";
-@import "../node_modules/bootstrap/scss/variables";
-@import "../node_modules/bootstrap/scss/mixins";
+@import "../../node_modules/bootstrap/scss/functions";
+@import "../../node_modules/bootstrap/scss/variables";
+@import "../../node_modules/bootstrap/scss/mixins";
 .batch-mode {
     font-weight: bold;
     background-color: $yellow-200 !important;

@@ -85,35 +85,51 @@ onMounted(() => {
 </script>
 
 <template>
-    <BlockUI :blocked="isLoading">
-        <DataTable :value="sortedShipments" size="small" tableClass="table table-striped table-hover"
-                   :globalFilterFields="Object.keys(shipmentFields)" v-model:filters="filters"
-                   paginator :rows="perPage" :rowsPerPageOptions="[5, 10, 20, 50]" scrollable
-                   paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
-        >
-            <template #header>
-                <div class="d-flex">
-                    <div class="input-group w-auto ms-auto">
-                        <div class="input-group-text"><i class="fas fa-search"></i></div>
-                        <input type="text" class="form-control" v-model="filters['global'].value" placeholder="Keyword Search">
-                    </div>
+    <DataTable :value="sortedShipments" size="small" tableClass="table table-striped table-hover"
+               :globalFilterFields="Object.keys(shipmentFields)" v-model:filters="filters"
+               paginator :rows="perPage" :rowsPerPageOptions="[5, 10, 20, 50]" scrollable
+               paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
+    >
+        <template #header>
+            <div class="d-flex">
+                <div class="input-group w-auto ms-auto">
+                    <div class="input-group-text"><i class="fas fa-search"></i></div>
+                    <input type="text" class="form-control" v-model="filters['global'].value" placeholder="Keyword Search">
                 </div>
+            </div>
+        </template>
+        <Column :key="col" :field="col" :header="label">
+            <template #body="slotProps">
+                <button class="btn btn-xs btn-primary" @click="goToShipment(slotProps.data)"><i class="fas fa-edit"></i>&nbsp;Open</button>
             </template>
-            <Column :key="col" :field="col" :header="label">
-                <template #body="slotProps">
-                    <button class="btn btn-xs btn-primary" @click="goToShipment(slotProps.data)"><i class="fas fa-edit"></i>&nbsp;Open</button>
-                </template>
-            </Column>
-            <template v-for="(cv, col) of shipmentFields">
-                <Column v-if="config['save-state']['shipment'][col]['shipment-list']" :key="col" :field="col" :header="cv['field_label']"></Column>
-            </template>
-        </DataTable>
+        </Column>
+        <template v-for="(cv, col) of shipmentFields">
+            <Column v-if="config['save-state']['shipment'][col]['shipment-list']" :key="col" :field="col" :header="cv['field_label']"></Column>
+        </template>
+    </DataTable>
 
-        <pre v-if="debug" class="mt-3">{{ debug }}</pre>
+    <pre v-if="debug" class="mt-3">{{ debug }}</pre>
 
-        <a :href="config.new_shipment_url" class="btn btn-success text-light mt-3"><i class="fas fa-plus"></i>&nbsp;New Shipment</a>
-    </BlockUI>
-    <ProgressSpinner v-show="isLoading" class="overlay"/>
+    <a :href="config.new_shipment_url" class="btn btn-success text-light mt-3"><i class="fas fa-plus"></i>&nbsp;New Shipment</a>
+
+    <!-- BLOCKING "WORKING" OVERLAY -->
+    <Dialog v-model:visible="isLoading"
+            modal
+            :dismissable-mask="false"
+            :closable="false"
+            pt:root:class="border-0 bg-transparent shadow-none"
+            pt:mask:class="bg-dark bg-opacity-50 backdrop-blur"
+    >
+        <template #container>
+            <div class="d-flex flex-column align-items-center justify-content-center p-3">
+                <ProgressSpinner
+                    stroke-width="4"
+                    animation-duration=".8s"
+                    aria-label="Loading content"
+                />
+            </div>
+        </template>
+    </Dialog>
 </template>
 
 <style scoped>

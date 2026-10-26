@@ -153,27 +153,43 @@ onMounted(() => {
         </div>
     </template>
 
-    <BlockUI :blocked="isLoading">
-        <!-- MAIN CONTENT AREA -->
-        <div class="card">
-            <div class="card-header">
-                <div class="row">
-                    <div class="col">
-                        <span class="lead">This dashboard is a full output of all specimens and their related data.</span>
-                        <hr class="my-1">
-                        <span class="text-muted">The primary purpose of this dashboard is to make the data exportable.</span>
-                        <div class="border-dark-subtle border-start border-3 ps-2 mt-2 text-muted"><strong>NOTE:</strong>&nbsp;<span>The search filter is applied when exporting data (i.e. if the filter only shows 100 of 999 rows, only the 100 will be exported).</span></div>
-                    </div>
+    <!-- MAIN CONTENT AREA -->
+    <div class="card">
+        <div class="card-header">
+            <div class="row">
+                <div class="col">
+                    <span class="lead">This dashboard is a full output of all specimens and their related data.</span>
+                    <hr class="my-1">
+                    <span class="text-muted">The primary purpose of this dashboard is to make the data exportable.</span>
+                    <div class="border-dark-subtle border-start border-3 ps-2 mt-2 text-muted"><strong>NOTE:</strong>&nbsp;<span>The search filter is applied when exporting data (i.e. if the filter only shows 100 of 999 rows, only the 100 will be exported).</span></div>
                 </div>
             </div>
-            <div class="card-body">
-                <template v-if="canShowDataTable">
-                    <DataTable ref="dt" :options="options" :data="specimens" class="table table-hover table-striped mb-0 display w-100" />
-                </template>
-            </div>
         </div>
-    </BlockUI>
-    <ProgressSpinner v-show="isLoading" class="overlay"/>
+        <div class="card-body">
+            <template v-if="canShowDataTable">
+                <DataTable ref="dt" :options="options" :data="specimens" class="table table-hover table-striped mb-0 display w-100" />
+            </template>
+        </div>
+    </div>
+
+    <!-- BLOCKING "WORKING" OVERLAY -->
+    <Dialog v-model:visible="isLoading"
+            modal
+            :dismissable-mask="false"
+            :closable="false"
+            pt:root:class="border-0 bg-transparent shadow-none"
+            pt:mask:class="bg-dark bg-opacity-50 backdrop-blur"
+    >
+        <template #container>
+            <div class="d-flex flex-column align-items-center justify-content-center p-3">
+                <ProgressSpinner
+                    stroke-width="4"
+                    animation-duration=".8s"
+                    aria-label="Loading content"
+                />
+            </div>
+        </template>
+    </Dialog>
     <pre v-if="debug" class="mt-3">{{ debug }}</pre>
 </template>
 

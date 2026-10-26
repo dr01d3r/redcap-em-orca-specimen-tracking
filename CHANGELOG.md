@@ -1,3 +1,5 @@
+## 2.0.7
+- Fixed a bug that would cause the interface to not be clickable after the "working" spinner overlay dismissed.
 ## 2.0.6
 - Significantly improved performance of the Specimen Entry Dashboard search functionality.
   - Queries that used to take upwards of a minute now only take a fraction of a second.
