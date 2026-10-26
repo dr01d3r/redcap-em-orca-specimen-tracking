@@ -823,7 +823,7 @@ onMounted(() => {
                 <span>To search for a box that is <strong>not</strong> in this list, use the search at the top of this page.</span>
             </div>
             <div class="card-body px-3 py-1">
-                <box-list :boxes="boxes" @selected="boxSelected"></box-list>
+                <box-list :boxes="boxes" :config="config" @selected="boxSelected"></box-list>
             </div>
         </div>
     </template>
@@ -875,7 +875,7 @@ onMounted(() => {
         :box_info="box"
         @specimenSaved="specimenSaved"
     ></specimen-modal>
-    <box-list-modal ref="boxListModal" @selected="boxSelected"></box-list-modal>
+    <box-list-modal ref="boxListModal" :config="config" @selected="boxSelected"></box-list-modal>
 
     <!-- BLOCKING "WORKING" OVERLAY -->
     <Dialog v-model:visible="isLoading"

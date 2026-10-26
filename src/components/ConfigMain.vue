@@ -398,7 +398,7 @@ onBeforeUnmount(() => {
                         <tbody>
                             <template v-for="p in [ 'specimen', 'box', 'shipment' ]">
                                 <tr class="table-dark">
-                                    <td colspan="13" class="border-2 border-secondary-subtle">
+                                    <td colspan="14" class="border-2 border-secondary-subtle">
                                         <div class="d-flex">
                                             <strong>{{ projects[p]['app_title'] }}</strong>
                                             <button class="btn btn-primary btn-xs ms-auto" @click="toggleConfigSections(p)">
@@ -420,6 +420,7 @@ onBeforeUnmount(() => {
                                     <th class="border-bottom">Units Label</th>
                                     <th class="border-bottom">Batch Mode</th>
                                     <th class="border-bottom">Specimen List</th>
+                                    <th class="border-bottom">Specimen Box List</th>
                                     <th class="border-bottom">Box Preview and Details</th>
                                     <th class="border-bottom">Reporting Dashboard</th>
                                     <th class="border-bottom">Shipment List</th>
@@ -479,6 +480,14 @@ onBeforeUnmount(() => {
                                                 @click="() => state['fields'][p][k]['specimen-list'] = !state['fields'][p][k]['specimen-list']"
                                                 :disabled="v['config']['specimen-list']['required']">
                                             <i :class="toggleIcon(state['fields'][p][k]['specimen-list'])"></i>
+                                        </button>
+                                    </td>
+                                    <!-- specimen-box-list -->
+                                    <td class="p-0 align-middle table-danger border-0 border-top border-bottom border-danger">
+                                        <button v-if="v['config']['specimen-box-list']['enabled']" class="fs-4 btn p-0 m-0 border-0 rounded-0 w-100 p-0" type="button"
+                                                @click="() => state['fields'][p][k]['specimen-box-list'] = !state['fields'][p][k]['specimen-box-list']"
+                                                :disabled="v['config']['specimen-box-list']['required']">
+                                            <i :class="toggleIcon(state['fields'][p][k]['specimen-box-list'])"></i>
                                         </button>
                                     </td>
                                     <!-- specimen-dashboard -->
