@@ -1,0 +1,65 @@
+name: Create Production Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers on any tag starting with 'v' (e.g., v1.0.0)
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Required to create a release and upload assets
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Vue.js application
+        run: npm run build
+
+      - name: Set Build Name
+        run: |
+          TAG="${{ github.ref_name }}"
+          echo "BUILD_NAME=orca_specimen_tracking_${TAG%%-*}" >> $GITHUB_ENV
+
+      - name: Verify BUILD_NAME
+        run: echo "The build name is ${{ env.BUILD_NAME }}"
+
+      - name: Bundle release files
+        run: |
+          mkdir -p "../${{ env.BUILD_NAME }}"
+          
+          rsync -av . "../${{ env.BUILD_NAME }}" \
+            --exclude='node_modules' \
+            --exclude='src' \
+            --exclude='composer.phar' \
+            --exclude='package*' \
+            --exclude='vite.config.js' \
+            --exclude='.git*' \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='.env*' \
+            --exclude='.idea' \
+            --exclude='tests'
+
+          # zip up the build, preserving the full tag as the zip filename (only the inner folder needs to be clean)
+          cd ..
+          zip -r "orca_specimen_tracking_${{ github.ref_name }}.zip" "${{ env.BUILD_NAME }}"
+          mv "orca_specimen_tracking_${{ github.ref_name }}.zip" "${GITHUB_WORKSPACE}/"
+
+      # Automatically create the GitHub Release and attach the ZIP
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "orca_specimen_tracking_${{ github.ref_name }}.zip"
+          generate_release_notes: true
