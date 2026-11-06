@@ -371,102 +371,100 @@ onMounted(() => {
         </template>
     </div>
 
-    <BlockUI :blocked="isLoading">
-        <div v-if="isShipmentComplete" class="alert alert-success">This Shipment is marked Complete.</div>
+    <div v-if="isShipmentComplete" class="alert alert-success">This Shipment is marked Complete.</div>
 
-        <template v-if="isNotEmpty(errors)">
-            <div class="alert alert-danger p-4">
-                <h1 class="display-4">Critical Errors Exist!</h1>
-                <p class="lead mb-0">This dashboard has been disabled until all critical errors have been resolved.</p>
-                <hr/>
-                <ul>
-                    <template v-for="(v, k) in errors">
-                        <li>{{ v }}</li>
-                    </template>
-                </ul>
-            </div>
-        </template>
+    <template v-if="isNotEmpty(errors)">
+        <div class="alert alert-danger p-4">
+            <h1 class="display-4">Critical Errors Exist!</h1>
+            <p class="lead mb-0">This dashboard has been disabled until all critical errors have been resolved.</p>
+            <hr/>
+            <ul>
+                <template v-for="(v, k) in errors">
+                    <li>{{ v }}</li>
+                </template>
+            </ul>
+        </div>
+    </template>
 
-        <!-- MAIN CONTENT AREA -->
-        <div class="card">
-            <div class="card-header">
-                <template v-if="shipment">
-                    <div class="row">
-                        <div class="col border-right" v-if="canModifyShipment">
-                            <h1 class="lead mb-0">Scan Box Names Here</h1>
-                            <hr class="my-1" />
-                            <input class="form-control"
-                                   ref="box_name_input"
-                                   autocomplete="off"
-                                   @keyup.enter="boxScanned"
-                                   @blur="boxScanned"
-                                   v-model="box_name" />
-                            <div class="alert alert-danger mt-1 mb-0 px-3 py-2"
-                                 v-if="v$.box_name.$error">
-                                <strong>Validation Error:</strong>
-                                <ul class="mb-0">
-                                    <li v-for="error of v$.box_name.$errors" :key="error.$uid">{{ error.$message }}</li>
-                                </ul>
-                            </div>
-                        </div>
-
-                        <div v-if="isNotEmpty(config['fields']['shipment'])" class="col-4">
-                            <h1 class="lead mb-0">Shipment Details</h1>
-                            <dl class="row">
-                                <template v-for="(v, k) of config['fields']['shipment']">
-                                    <template v-if="config['save-state']['shipment'][k]['shipment-list']">
-                                        <div class="col-12"><hr class="my-1" /></div>
-                                        <dt class="col-lg-5 text-truncate" :title="v['field_label']">{{ v['field_label'] }}</dt>
-                                        <dd class="col-lg-7 mb-0">{{ shipment_details[k] }}</dd>
-                                    </template>
-                                </template>
-                            </dl>
+    <!-- MAIN CONTENT AREA -->
+    <div class="card">
+        <div class="card-header">
+            <template v-if="shipment">
+                <div class="row">
+                    <div class="col border-right" v-if="canModifyShipment">
+                        <h1 class="lead mb-0">Scan Box Names Here</h1>
+                        <hr class="my-1" />
+                        <input class="form-control"
+                               ref="box_name_input"
+                               autocomplete="off"
+                               @keyup.enter="boxScanned"
+                               @blur="boxScanned"
+                               v-model="box_name" />
+                        <div class="alert alert-danger mt-1 mb-0 px-3 py-2"
+                             v-if="v$.box_name.$error">
+                            <strong>Validation Error:</strong>
+                            <ul class="mb-0">
+                                <li v-for="error of v$.box_name.$errors" :key="error.$uid">{{ error.$message }}</li>
+                            </ul>
                         </div>
                     </div>
-                </template>
-                <template v-else>
-                    <h1 class="lead">Shipment Search</h1>
-                    <shipment-search />
-                </template>
-            </div>
-            <div class="card-body">
-                <h1 class="lead">
-                    Shipment Boxes
-                    <span v-if="boxCount">
-                        ({{ boxCount }})
-                    </span>
-                    <template v-if="canExportManifest">
-                        <span>&nbsp;|&nbsp;</span>
-                        <a :href="config.manifest_export_url" class="text-primary font-weight-normal"><i class="fas fa-file-export"></i>&nbsp;Export Manifest</a>
-                    </template>
-                </h1>
-                <table class="table" v-if="config['save-state']">
-                    <thead>
-                    <tr>
-                        <!-- configured fields -->
-                        <template v-for="(fv, fk) in config['save-state']['box']">
-                            <th v-if="fv['shipment-box-list']">{{ config['fields']['box'][fk]['field_label'] }}</th>
-                        </template>
-                        <th scope="col">Actions</th>
-                    </tr>
-                    </thead>
-                    <tbody>
-                    <tr v-for="(bv, bk) in boxes">
-                        <!-- configured fields -->
-                        <template v-for="(fv, fk) in config['save-state']['box']">
-                            <td v-if="fv['shipment-box-list']">{{ boxDisplayValue(fk, bv[fk]) }}</td>
-                        </template>
-                        <td class="d-flex gap-2">
-                            <button v-if="canModifyShipment" @click.prevent="confirmRemoveBox(bv)" class="btn btn-xs btn-danger text-light" title="Remove Box"><i class="fas fa-times"></i>&nbsp;Remove</button>
-                            <button @click.prevent="boxDashboard(bv)" class="btn btn-xs btn-primary text-light" title="Go to Box Dashboard"><i class="fas fa-vials"></i>&nbsp;Dashboard</button>
-                        </td>
-                    </tr>
-                    </tbody>
-                </table>
-                <button v-if="showButtonCompleteShipment" type="button" class="btn btn-success" @click.prevent="confirmComplete">Complete Shipment</button>
-            </div>
+
+                    <div v-if="isNotEmpty(config['fields']['shipment'])" class="col-4">
+                        <h1 class="lead mb-0">Shipment Details</h1>
+                        <dl class="row">
+                            <template v-for="(v, k) of config['fields']['shipment']">
+                                <template v-if="config['save-state']['shipment'][k]['shipment-list']">
+                                    <div class="col-12"><hr class="my-1" /></div>
+                                    <dt class="col-lg-5 text-truncate" :title="v['field_label']">{{ v['field_label'] }}</dt>
+                                    <dd class="col-lg-7 mb-0">{{ shipment_details[k] }}</dd>
+                                </template>
+                            </template>
+                        </dl>
+                    </div>
+                </div>
+            </template>
+            <template v-else>
+                <h1 class="lead">Shipment Search</h1>
+                <shipment-search />
+            </template>
         </div>
-    </BlockUI>
+        <div class="card-body">
+            <h1 class="lead">
+                Shipment Boxes
+                <span v-if="boxCount">
+                    ({{ boxCount }})
+                </span>
+                <template v-if="canExportManifest">
+                    <span>&nbsp;|&nbsp;</span>
+                    <a :href="config.manifest_export_url" class="text-primary font-weight-normal"><i class="fas fa-file-export"></i>&nbsp;Export Manifest</a>
+                </template>
+            </h1>
+            <table class="table" v-if="config['save-state']">
+                <thead>
+                <tr>
+                    <!-- configured fields -->
+                    <template v-for="(fv, fk) in config['save-state']['box']">
+                        <th v-if="fv['shipment-box-list']">{{ config['fields']['box'][fk]['field_label'] }}</th>
+                    </template>
+                    <th scope="col">Actions</th>
+                </tr>
+                </thead>
+                <tbody>
+                <tr v-for="(bv, bk) in boxes">
+                    <!-- configured fields -->
+                    <template v-for="(fv, fk) in config['save-state']['box']">
+                        <td v-if="fv['shipment-box-list']">{{ boxDisplayValue(fk, bv[fk]) }}</td>
+                    </template>
+                    <td class="d-flex gap-2">
+                        <button v-if="canModifyShipment" @click.prevent="confirmRemoveBox(bv)" class="btn btn-xs btn-danger text-light" title="Remove Box"><i class="fas fa-times"></i>&nbsp;Remove</button>
+                        <button @click.prevent="boxDashboard(bv)" class="btn btn-xs btn-primary text-light" title="Go to Box Dashboard"><i class="fas fa-vials"></i>&nbsp;Dashboard</button>
+                    </td>
+                </tr>
+                </tbody>
+            </table>
+            <button v-if="showButtonCompleteShipment" type="button" class="btn btn-success" @click.prevent="confirmComplete">Complete Shipment</button>
+        </div>
+    </div>
     <pre v-if="debug" class="mt-3">{{ debug }}</pre>
 
     <ConfirmDialog group="add-box">
@@ -487,9 +485,27 @@ onMounted(() => {
         </template>
     </ConfirmDialog>
 
+    <!-- BLOCKING "WORKING" OVERLAY -->
+    <Dialog v-model:visible="isLoading"
+            modal
+            :dismissable-mask="false"
+            :closable="false"
+            pt:root:class="border-0 bg-transparent shadow-none"
+            pt:mask:class="bg-dark bg-opacity-50 backdrop-blur"
+    >
+        <template #container>
+            <div class="d-flex flex-column align-items-center justify-content-center p-3">
+                <ProgressSpinner
+                    stroke-width="4"
+                    animation-duration=".8s"
+                    aria-label="Loading content"
+                />
+            </div>
+        </template>
+    </Dialog>
+
     <Toast position="bottom-right"></Toast>
     <shipment-modal ref="shipmentModal"></shipment-modal>
-    <ProgressSpinner v-show="isLoading" class="overlay"/>
 </template>
 
 <style>

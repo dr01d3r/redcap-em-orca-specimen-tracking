@@ -3,19 +3,16 @@
   "version": "2.0.0",
   "description": "REDCap External Module for Biospecimen Tracking",
   "scripts": {
-    "dev-config": "vite build -c vite.config-config.js --watch",
-    "dev-dashboard": "vite build -c vite.config-dashboard.js --watch",
-    "dev-shipment": "vite build -c vite.config-shipment.js --watch",
-    "dev-report": "vite build -c vite.config-report.js --watch",
-    "build": "vite build -c vite.config-config.js && vite build -c vite.config-dashboard.js && vite build -c vite.config-shipment.js && vite build -c vite.config-report.js"
+    "dev": "vite build --watch",
+    "build": "vite build"
   },
   "author": "Chris Kadolph",
   "license": "MIT",
   "devDependencies": {
-    "@vitejs/plugin-vue": "^4.5.1",
-    "prettier": "3.3.2",
-    "sass": "^1.77.6",
-    "vite": "^5.0.5"
+    "@vitejs/plugin-vue": "^6.0.7",
+    "prettier": "^3.6.2",
+    "sass": "^1.93.2",
+    "vite": "^8.0.16"
   },
   "dependencies": {
     "@popperjs/core": "^2.11.8",
@@ -28,13 +25,13 @@
     "datatables.net": "^2.1.7",
     "datatables.net-bs5": "^2.1.7",
     "datatables.net-buttons-dt": "^3.1.2",
-    "datatables.net-vue3": "^3.0.2",
+    "datatables.net-vue3": "^3.0.4",
     "jszip": "^3.10.1",
     "lodash": "^4.17.21",
     "luxon": "^3.5.0",
-    "primevue": "^4.2.1",
+    "primevue": "^4.5.0",
     "qs": "^6.12.3",
-    "vue": "^3.3.10",
+    "vue": "^3.5.0",
     "vuelidate": "^0.7.7"
   }
 }

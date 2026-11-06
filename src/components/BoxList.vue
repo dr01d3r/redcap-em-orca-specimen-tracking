@@ -3,10 +3,15 @@ import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import { isEmpty, isNotEmpty } from '@primeuix/utils/object';
 const {
-    boxes
+    boxes,
+    config
 } = defineProps({
     boxes: {
         type: Array,
+        required: true
+    },
+    config: {
+        type: Object,
         required: true
     }
 });
@@ -37,6 +42,15 @@ const selected = (e) => {
                     <i>{{ slotProps.data[slotProps.field] }}</i>
                 </template>
             </Column>
+            <template v-for="(fv, fk) in config['fields']['box']">
+                <template v-if="config['save-state']['box'][fk]['specimen-box-list'] && !fv['config']['specimen-box-list']['required']">
+                    <Column :field="fk" :header="fv['field_label']">
+                        <template #body="slotProps">
+                            <i>{{ slotProps.data[slotProps.field] }}</i>
+                        </template>
+                    </Column>
+                </template>
+            </template>
             <Column field="box_status" header="Box Status">
                 <template #body="slotProps">
                     <div class="badge" :class="`box-status-${slotProps.data[slotProps.field]}`">{{ slotProps.data[slotProps.field] }}</div>

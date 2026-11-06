@@ -1,4 +1,4 @@
-// vite.config-index.js
+// vite.config.js
 import { fileURLToPath, URL } from 'node:url';
 
 import { defineConfig } from 'vite'
@@ -9,16 +9,19 @@ export default defineConfig({
         vue(),
     ],
     build: {
-        emptyOutDir: false,
+        sourcemap: true,
         rollupOptions: {
             input: {
-                'shipment': 'src/pages/shipment/app.js'
+                config: 'src/pages/config/app.js',
+                dashboard: 'src/pages/dashboard/app.js',
+                report: 'src/pages/report/app.js',
+                shipment: 'src/pages/shipment/app.js',
             },
             output: {
                 entryFileNames: 'pages/[name].js',
-                assetFileNames: 'assets/[name][extname]'
-            }
-        }
+                assetFileNames: `assets/[name][extname]`,
+            },
+        },
     },
     resolve: {
         alias: {

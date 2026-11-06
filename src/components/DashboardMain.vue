@@ -623,269 +623,285 @@ onMounted(() => {
 </script>
 
 <template>
-    <BlockUI :blocked="isLoading">
-        <div class="projhdr">
-            <i class="fas fa-vials text-dark"></i>&nbsp;Specimen Entry Dashboard
-            <template v-if="config.box_record_home_url">
-                <span>&nbsp;|&nbsp;</span>
-                <a :href="config.box_record_home_url" class="text-primary ml-1 text-decoration-none">
-                    <i class="fas fa-share"></i>&nbsp;Record Home
-                </a>
-            </template>
-            <template v-if="showShipmentDashboardLink">
-                <span>&nbsp;|&nbsp;</span>
-                <a href="javascript:void(0)" @click.prevent="gotoShipmentDashboard()" class="text-primary ml-1 text-decoration-none">
-                    <i class="fas fa-truck"></i>&nbsp;Shipment Dashboard
-                </a>
-            </template>
-        </div>
-
-        <div class="row">
-            <div class="col-xl-4 col-lg-6">
-                <div class="input-group input-group-sm mb-3">
-                    <input ref="search_input" type="text" class="form-control" placeholder="Search Anything!" v-model="search_value" @keyup.enter="search" v-focus />
-                    <button type="button" title="Search Result" class="btn btn-primary" @click="search">
-                        <i class="fas fa-search"></i>
-                    </button>
-                    <template v-if="box">
-                        <!-- "back to list" button -->
-                        <button type="button" class="btn btn-outline-primary" @click="resetToList"><i class="fas fa-list"></i>&nbsp;List</button>
-                    </template>
-                    <template v-if="showButtonNewBox">
-                        <button type="button" class="btn btn-outline-success"@click="gotoNewBoxURL"><i class="fas fa-plus"></i>&nbsp;New</button>
-                    </template>
-                </div>
-            </div>
-        </div>
-
-        <template v-if="isNotEmpty(errors)">
-            <div class="alert alert-danger p-4">
-                <h1 class="display-4">Critical Errors Exist!</h1>
-                <p class="lead mb-0">This dashboard has been disabled until all critical errors have been resolved.</p>
-                <hr/>
-                <ul>
-                    <template v-for="(v, k) in errors">
-                        <li v-html="v"></li>
-                    </template>
-                </ul>
-            </div>
+    <div class="projhdr">
+        <i class="fas fa-vials text-dark"></i>&nbsp;Specimen Entry Dashboard
+        <template v-if="config.box_record_home_url">
+            <span>&nbsp;|&nbsp;</span>
+            <a :href="config.box_record_home_url" class="text-primary ml-1 text-decoration-none">
+                <i class="fas fa-share"></i>&nbsp;Record Home
+            </a>
         </template>
+        <template v-if="showShipmentDashboardLink">
+            <span>&nbsp;|&nbsp;</span>
+            <a href="javascript:void(0)" @click.prevent="gotoShipmentDashboard()" class="text-primary ml-1 text-decoration-none">
+                <i class="fas fa-truck"></i>&nbsp;Shipment Dashboard
+            </a>
+        </template>
+    </div>
 
-        <!-- MAIN CONTENT AREA -->
-        <template v-if="box">
-            <div class="card">
-                <div class="card-header">
-                    <div class="row">
-                        <div class="col">
-                            <div class="mb-2">
-                                <div class="d-flex gap-2 align-items-center">
-                                    <label class="col-form-label">Box Name</label>
-                                </div>
-                                <input type="text" :value="box.box_name" class="form-control" disabled="disabled"/>
+    <div class="row">
+        <div class="col-xl-4 col-lg-6">
+            <div class="input-group input-group-sm mb-3">
+                <input ref="search_input" type="text" class="form-control" placeholder="Search Anything!" v-model="search_value" @keyup.enter="search" v-focus />
+                <button type="button" title="Search Result" class="btn btn-primary" @click="search">
+                    <i class="fas fa-search"></i>
+                </button>
+                <template v-if="box">
+                    <!-- "back to list" button -->
+                    <button type="button" class="btn btn-outline-primary" @click="resetToList"><i class="fas fa-list"></i>&nbsp;List</button>
+                </template>
+                <template v-if="showButtonNewBox">
+                    <button type="button" class="btn btn-outline-success"@click="gotoNewBoxURL"><i class="fas fa-plus"></i>&nbsp;New</button>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <template v-if="isNotEmpty(errors)">
+        <div class="alert alert-danger p-4">
+            <h1 class="display-4">Critical Errors Exist!</h1>
+            <p class="lead mb-0">This dashboard has been disabled until all critical errors have been resolved.</p>
+            <hr/>
+            <ul>
+                <template v-for="(v, k) in errors">
+                    <li v-html="v"></li>
+                </template>
+            </ul>
+        </div>
+    </template>
+
+    <!-- MAIN CONTENT AREA -->
+    <template v-if="box">
+        <div class="card">
+            <div class="card-header">
+                <div class="row">
+                    <div class="col">
+                        <div class="mb-2">
+                            <div class="d-flex gap-2 align-items-center">
+                                <label class="col-form-label">Box Name</label>
                             </div>
-                            <template v-if="canEnterSpecimens">
-                                <specimen-form
-                                    ref="specimenForm"
-                                    mode="new"
-                                    :config="config"
-                                    :box_record_id="plateRecordId"
-                                    :box_position="currentPosition"
-                                    :box_info="box"
-                                    @specimenSaved="specimenSaved"
-                                ></specimen-form>
-                            </template>
-                            <div class="alert alert-warning border border-warning mt-3" v-if="isBoxFull">Specimen Entry
-                                Disabled! The box is full.
-                            </div>
-                            <div class="alert alert-warning border border-warning mt-3" v-if="isPlateStatusClosed"><strong>NOTICE:</strong>
-                                This box is CLOSED, and as such, has been put into a read-only state.
-                            </div>
+                            <input type="text" :value="box.box_name" class="form-control" disabled="disabled"/>
                         </div>
-                        <div class="col-auto mt-2">
-                            <template v-if="isNotEmpty(boxDisplayInfo)">
-                                <div class="d-flex align-items-center">
-                                    <strong>Box Information</strong>
-                                    <button type="button" class="ms-auto btn btn-primary btn-xs"
-                                            @click="() => showBoxDisplayInfo = !showBoxDisplayInfo">
-                                        <template v-if="showBoxDisplayInfo">
-                                            <i class="fas fa-chevron-up"></i>&nbsp;Collapse
-                                        </template>
-                                        <template v-else>
-                                            <i class="fas fa-chevron-down"></i>&nbsp;Expand
-                                        </template>
-                                    </button>
-                                </div>
-                                <hr class="mt-1 mb-0" />
-                                <table v-if="showBoxDisplayInfo" class="table table-striped">
-                                    <tbody>
-                                    <tr v-for="(v, k) in boxDisplayInfo">
-                                        <th>{{ v['label'] }}</th>
-                                        <td>{{ v['value'] }}</td>
-                                    </tr>
-                                    </tbody>
-                                </table>
-                            </template>
-                            <template v-if="boxSize && config.alphabet">
-                                <label class="col-form-label">Box Preview<span v-if="currentPosition">&nbsp;(<strong>{{ currentPosition.position }}</strong>)</span></label>
-                                <div class="container box-preview border border-dark selectable">
-                                    <div class="box-preview-header row text-center font-weight-bold bg-dark text-light">
-                                        <div class="col-header py-2 px-0">#</div>
-                                        <template v-for="col in boxSize.cols">
-                                            <div class="col-header py-2 px-0">{{ col }}</div>
-                                        </template>
-                                    </div>
-                                    <div class="row">
-                                        <div class="box-preview-rows col overflow-y-auto g-0">
-                                            <template v-for="(row, rowKey) in positions">
-                                                <div class="d-flex">
-                                                    <div class="row-header bg-dark text-light font-weight-bold d-flex align-items-center justify-content-center">
-                                                        <span>{{ rowKey }}</span>
-                                                    </div>
-                                                    <template v-for="(pos, colKey) in row">
-                                                        <div class="box-position px-0"
-                                                             :class="[ positionClass(pos) ]"
-                                                             :title="positionTitle(pos)"
-                                                             :id="'position-' + pos.position"
-                                                             :data-position-label="pos.position"
-                                                             @click="positionSelected(pos)"
-                                                        >
-                                                        </div>
-                                                    </template>
-                                                </div>
-                                            </template>
-                                        </div>
-                                    </div>
-                                </div>
-                            </template>
+                        <template v-if="canEnterSpecimens">
+                            <specimen-form
+                                ref="specimenForm"
+                                mode="new"
+                                :config="config"
+                                :box_record_id="plateRecordId"
+                                :box_position="currentPosition"
+                                :box_info="box"
+                                @specimenSaved="specimenSaved"
+                            ></specimen-form>
+                        </template>
+                        <div class="alert alert-warning border border-warning mt-3" v-if="isBoxFull">Specimen Entry
+                            Disabled! The box is full.
+                        </div>
+                        <div class="alert alert-warning border border-warning mt-3" v-if="isPlateStatusClosed"><strong>NOTICE:</strong>
+                            This box is CLOSED, and as such, has been put into a read-only state.
                         </div>
                     </div>
+                    <div class="col-auto mt-2">
+                        <template v-if="isNotEmpty(boxDisplayInfo)">
+                            <div class="d-flex align-items-center">
+                                <strong>Box Information</strong>
+                                <button type="button" class="ms-auto btn btn-primary btn-xs"
+                                        @click="() => showBoxDisplayInfo = !showBoxDisplayInfo">
+                                    <template v-if="showBoxDisplayInfo">
+                                        <i class="fas fa-chevron-up"></i>&nbsp;Collapse
+                                    </template>
+                                    <template v-else>
+                                        <i class="fas fa-chevron-down"></i>&nbsp;Expand
+                                    </template>
+                                </button>
+                            </div>
+                            <hr class="mt-1 mb-0" />
+                            <table v-if="showBoxDisplayInfo" class="table table-striped">
+                                <tbody>
+                                <tr v-for="(v, k) in boxDisplayInfo">
+                                    <th>{{ v['label'] }}</th>
+                                    <td>{{ v['value'] }}</td>
+                                </tr>
+                                </tbody>
+                            </table>
+                        </template>
+                        <template v-if="boxSize && config.alphabet">
+                            <label class="col-form-label">Box Preview<span v-if="currentPosition">&nbsp;(<strong>{{ currentPosition.position }}</strong>)</span></label>
+                            <div class="container box-preview border border-dark selectable">
+                                <div class="box-preview-header row text-center font-weight-bold bg-dark text-light">
+                                    <div class="col-header py-2 px-0">#</div>
+                                    <template v-for="col in boxSize.cols">
+                                        <div class="col-header py-2 px-0">{{ col }}</div>
+                                    </template>
+                                </div>
+                                <div class="row">
+                                    <div class="box-preview-rows col overflow-y-auto g-0">
+                                        <template v-for="(row, rowKey) in positions">
+                                            <div class="d-flex">
+                                                <div class="row-header bg-dark text-light font-weight-bold d-flex align-items-center justify-content-center">
+                                                    <span>{{ rowKey }}</span>
+                                                </div>
+                                                <template v-for="(pos, colKey) in row">
+                                                    <div class="box-position px-0"
+                                                         :class="[ positionClass(pos) ]"
+                                                         :title="positionTitle(pos)"
+                                                         :id="'position-' + pos.position"
+                                                         :data-position-label="pos.position"
+                                                         @click="positionSelected(pos)"
+                                                    >
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
                 </div>
-                <div class="card-body">
-                    <div v-if="config && config['save-state'] && config['fields']">
-                        <table id="dashboard_table" class="table mb-0">
-                            <thead>
+            </div>
+            <div class="card-body">
+                <div v-if="config && config['save-state'] && config['fields']">
+                    <table id="dashboard_table" class="table mb-0">
+                        <thead>
+                        <tr>
+                            <!-- actions -->
+                            <th v-if="canEditSpecimens" class="text-center">Actions</th>
+                            <!-- name -->
+                            <th>{{ config['fields']['specimen']['specimen_name']['field_label'] }}</th>
+                            <!-- box_position -->
+                            <th>{{ config['fields']['specimen']['box_position']['field_label'] }}</th>
+                            <!-- configured fields -->
+                            <template v-for="(fv, fk) in config['save-state']['specimen']">
+                                <th v-if="!config['fields']['specimen'][fk]['config']['specimen-list']['required'] && fv['specimen-list']">{{ config['fields']['specimen'][fk]['field_label'] }}</th>
+                            </template>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <template v-for="(s, index) in sortedSpecimens" :key="s.record_id">
                             <tr>
                                 <!-- actions -->
-                                <th v-if="canEditSpecimens" class="text-center">Actions</th>
+                                <td class="text-center" v-if="canEditSpecimens">
+                                    <button type="button" class="btn btn-sm btn-link py-0"
+                                            @click="editSpecimen(s.record_id)">
+                                        <i class="fas fa-edit" style="display: inline;"></i>
+                                    </button>
+                                    <button type="button" class="btn btn-sm btn-link text-danger py-0"
+                                            @click="tryDeleteSpecimen(s)">
+                                        <i class="fas fa-times" style="display: inline;"></i>
+                                    </button>
+                                </td>
                                 <!-- name -->
-                                <th>{{ config['fields']['specimen']['specimen_name']['field_label'] }}</th>
+                                <th scope="row" :data-sort="s.specimen_name">
+                                    {{ s.specimen_name }}
+                                </th>
                                 <!-- box_position -->
-                                <th>{{ config['fields']['specimen']['box_position']['field_label'] }}</th>
+                                <td :data-sort="s.box_position">
+                                    {{ s.box_position }}
+                                </td>
                                 <!-- configured fields -->
                                 <template v-for="(fv, fk) in config['save-state']['specimen']">
-                                    <th v-if="!config['fields']['specimen'][fk]['config']['specimen-list']['required'] && fv['specimen-list']">{{ config['fields']['specimen'][fk]['field_label'] }}</th>
+                                    <td v-if="!config['fields']['specimen'][fk]['config']['specimen-list']['required'] && fv['specimen-list']">{{ specimenDisplayValue(fk, s[fk]) }}</td>
                                 </template>
                             </tr>
-                            </thead>
-                            <tbody>
-                            <template v-for="(s, index) in sortedSpecimens" :key="s.record_id">
-                                <tr>
-                                    <!-- actions -->
-                                    <td class="text-center" v-if="canEditSpecimens">
-                                        <button type="button" class="btn btn-sm btn-link py-0"
-                                                @click="editSpecimen(s.record_id)">
-                                            <i class="fas fa-edit" style="display: inline;"></i>
-                                        </button>
-                                        <button type="button" class="btn btn-sm btn-link text-danger py-0"
-                                                @click="tryDeleteSpecimen(s)">
-                                            <i class="fas fa-times" style="display: inline;"></i>
-                                        </button>
-                                    </td>
-                                    <!-- name -->
-                                    <th scope="row" :data-sort="s.specimen_name">
-                                        {{ s.specimen_name }}
-                                    </th>
-                                    <!-- box_position -->
-                                    <td :data-sort="s.box_position">
-                                        {{ s.box_position }}
-                                    </td>
-                                    <!-- configured fields -->
-                                    <template v-for="(fv, fk) in config['save-state']['specimen']">
-                                        <td v-if="!config['fields']['specimen'][fk]['config']['specimen-list']['required'] && fv['specimen-list']">{{ specimenDisplayValue(fk, s[fk]) }}</td>
-                                    </template>
-                                </tr>
-                            </template>
-                            </tbody>
-                        </table>
-                    </div>
+                        </template>
+                        </tbody>
+                    </table>
                 </div>
             </div>
-        </template>
-        <template v-else>
-            <div class="card">
-                <div class="card-header">
-                    <span>This dashboard shows you all <strong>Available</strong> boxes.</span>
-                    <hr class="my-2">
-                    <ul class="mb-0">
-                        <li>Select a box to see its full details and take action.</li>
-                        <li>Boxes in a <strong>Closed</strong> status will not appear in this list.</li>
-                    </ul>
-                    <hr class="my-2">
-                    <span>To search for a box that is <strong>not</strong> in this list, use the search at the top of this page.</span>
-                </div>
-                <div class="card-body px-3 py-1">
-                    <box-list :boxes="boxes" @selected="boxSelected"></box-list>
-                </div>
-            </div>
-        </template>
-
-        <div v-if="debug" class="mt-3">
-            <pre>{{ debug }}</pre>
         </div>
-        <Toast position="bottom-right">
-            <template #message="slotProps">
-                <div class="p-toast-message-text" data-pc-section="messagetext">
-                    <span v-if="isNotEmpty(slotProps.message.summary)" class="p-toast-summary" data-pc-section="summary" v-html="slotProps.message.summary"></span>
-                    <div v-if="isNotEmpty(slotProps.message.detail)" class="p-toast-detail" data-pc-section="detail" v-html="slotProps.message.detail"></div>
+    </template>
+    <template v-else>
+        <div class="card">
+            <div class="card-header">
+                <span>This dashboard shows you all <strong>Available</strong> boxes.</span>
+                <hr class="my-2">
+                <ul class="mb-0">
+                    <li>Select a box to see its full details and take action.</li>
+                    <li>Boxes in a <strong>Closed</strong> status will not appear in this list.</li>
+                </ul>
+                <hr class="my-2">
+                <span>To search for a box that is <strong>not</strong> in this list, use the search at the top of this page.</span>
+            </div>
+            <div class="card-body px-3 py-1">
+                <box-list :boxes="boxes" :config="config" @selected="boxSelected"></box-list>
+            </div>
+        </div>
+    </template>
+
+    <div v-if="debug" class="mt-3">
+        <pre>{{ debug }}</pre>
+    </div>
+    <Toast position="bottom-right">
+        <template #message="slotProps">
+            <div class="p-toast-message-text" data-pc-section="messagetext">
+                <span v-if="isNotEmpty(slotProps.message.summary)" class="p-toast-summary" data-pc-section="summary" v-html="slotProps.message.summary"></span>
+                <div v-if="isNotEmpty(slotProps.message.detail)" class="p-toast-detail" data-pc-section="detail" v-html="slotProps.message.detail"></div>
+            </div>
+        </template>
+    </Toast>
+    <ConfirmDialog group="delete">
+        <template #container="{ message, acceptCallback, rejectCallback }">
+            <div class="card">
+                <div class="card-header bg-danger">
+                    <h5 class="text-light">{{ message.header }}</h5>
                 </div>
-            </template>
-        </Toast>
-        <ConfirmDialog group="delete">
-            <template #container="{ message, acceptCallback, rejectCallback }">
-                <div class="card">
-                    <div class="card-header bg-danger">
-                        <h5 class="text-light">{{ message.header }}</h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="text-center"><h5 class="lead">You are about to delete the following specimen:</h5>
-                            <hr>
-                            <h5 class="lead text-danger text-monospace font-weight-bold">[{{ message.message }}]</h5>
-                            <hr>
-                            <div class="lead text-danger mb-0"><i class="fas fa-exclamation-triangle"></i><span
-                                class="mx-3">This action cannot be undone!</span><i
-                                class="fas fa-exclamation-triangle"></i></div>
-                        </div>
-                    </div>
-                    <div class="card-footer bg-danger-subtle">
-                        <div class="d-flex gap-2 justify-content-end">
-                            <button class="btn btn-outline-dark" label="Cancel" outlined @click="rejectCallback">
-                                Cancel
-                            </button>
-                            <button class="btn btn-danger text-uppercase" label="Confirm" @click="acceptCallback">
-                                DELETE
-                            </button>
-                        </div>
+                <div class="card-body">
+                    <div class="text-center"><h5 class="lead">You are about to delete the following specimen:</h5>
+                        <hr>
+                        <h5 class="lead text-danger text-monospace font-weight-bold">[{{ message.message }}]</h5>
+                        <hr>
+                        <div class="lead text-danger mb-0"><i class="fas fa-exclamation-triangle"></i><span
+                            class="mx-3">This action cannot be undone!</span><i
+                            class="fas fa-exclamation-triangle"></i></div>
                     </div>
                 </div>
-            </template>
-        </ConfirmDialog>
-        <specimen-modal
-            ref="specimenModal"
-            :config="config"
-            :box_record_id="plateRecordId"
-            :box_info="box"
-            @specimenSaved="specimenSaved"
-        ></specimen-modal>
-        <box-list-modal ref="boxListModal" @selected="boxSelected"></box-list-modal>
-        <ProgressSpinner v-show="isLoading" class="overlay"/>
-    </BlockUI>
+                <div class="card-footer bg-danger-subtle">
+                    <div class="d-flex gap-2 justify-content-end">
+                        <button class="btn btn-outline-dark" label="Cancel" outlined @click="rejectCallback">
+                            Cancel
+                        </button>
+                        <button class="btn btn-danger text-uppercase" label="Confirm" @click="acceptCallback">
+                            DELETE
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </template>
+    </ConfirmDialog>
+    <specimen-modal
+        ref="specimenModal"
+        :config="config"
+        :box_record_id="plateRecordId"
+        :box_info="box"
+        @specimenSaved="specimenSaved"
+    ></specimen-modal>
+    <box-list-modal ref="boxListModal" :config="config" @selected="boxSelected"></box-list-modal>
+
+    <!-- BLOCKING "WORKING" OVERLAY -->
+    <Dialog v-model:visible="isLoading"
+            modal
+            :dismissable-mask="false"
+            :closable="false"
+            pt:root:class="border-0 bg-transparent shadow-none"
+            pt:mask:class="bg-dark bg-opacity-50 backdrop-blur"
+    >
+        <template #container>
+            <div class="d-flex flex-column align-items-center justify-content-center p-3">
+                <ProgressSpinner
+                    stroke-width="4"
+                    animation-duration=".8s"
+                    aria-label="Loading content"
+                />
+            </div>
+        </template>
+    </Dialog>
 </template>
 
 <style lang="scss">
-@import "../node_modules/bootstrap/scss/functions";
-@import "../node_modules/bootstrap/scss/variables";
-@import "../node_modules/bootstrap/scss/mixins";
-@import "../node_modules/bootstrap/scss/alert";
+@import "../../node_modules/bootstrap/scss/functions";
+@import "../../node_modules/bootstrap/scss/variables";
+@import "../../node_modules/bootstrap/scss/mixins";
+@import "../../node_modules/bootstrap/scss/alert";
 
 @each $color, $value in $colors {
     .box-position-#{$color} {

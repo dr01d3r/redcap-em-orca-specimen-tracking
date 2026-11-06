@@ -66,6 +66,7 @@ trait ConfigUtils {
     {
         // initialize a default config
         $config = [
+            "specimen-box-list"   => [ "enabled" => false, "required" => false ],
             "specimen-dashboard"  => [ "enabled" => false, "required" => false ],
             "specimen-entry-form" => [ "enabled" => false, "required" => false ],
             "batch-mode"          => [ "enabled" => false, "required" => false ],
@@ -78,6 +79,7 @@ trait ConfigUtils {
         // enable based on project
         switch ($project_name) {
             case "box":
+                $config["specimen-box-list"]["enabled"] = true;
                 $config["specimen-dashboard"]["enabled"] = true;
                 $config["reporting-table"]["enabled"] = true;
                 $config["shipment-box-list"]["enabled"] = true;
@@ -112,7 +114,15 @@ trait ConfigUtils {
                 $config["specimen-list"]["required"] = true;
                 break;
             // box
-            // ...
+            case "box.record_id":
+                $config["specimen-box-list"]["required"] = true;
+                break;
+            case "box.box_name":
+                $config["specimen-box-list"]["required"] = true;
+                break;
+            case "box.box_status":
+                $config["specimen-box-list"]["required"] = true;
+                break;
             // shipment
             // ...
         }
@@ -169,6 +179,7 @@ trait ConfigUtils {
                 "field-units" => $module_config[$field_name]["field-units"],
                 "batch-mode" => $module_config[$field_name]["batch-mode"] ?? false,
                 "specimen-list" => $module_config[$field_name]["specimen-list"] ?? false,
+                "specimen-box-list" => $module_config[$field_name]["specimen-box-list"] ?? false,
                 "specimen-dashboard" => $module_config[$field_name]["specimen-dashboard"] ?? false,
                 "reporting-table" => $module_config[$field_name]["reporting-table"] ?? false,
                 "shipment-list" => $module_config[$field_name]["shipment-list"] ?? false,

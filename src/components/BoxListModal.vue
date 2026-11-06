@@ -4,6 +4,12 @@ import Dialog from 'primevue/dialog';
 import { isEmpty, isNotEmpty } from '@primeuix/utils/object';
 import BoxList from "./BoxList.vue";
 
+const props = defineProps({
+    config: {
+        type: Object,
+        required: true
+    }
+});
 defineExpose({
     show
 });
@@ -38,7 +44,7 @@ const onHidden = () => {
 <template>
     <Dialog v-model:visible="dialogVisible" modal :header="header" :style="{ width: '50vw' }" @after-hide="onHidden">
         <template v-if="!isEmpty(boxes)">
-            <box-list :boxes="boxes" @selected="onPlateSelected"></box-list>
+            <box-list :boxes="boxes" :config="config" @selected="onPlateSelected"></box-list>
         </template>
     </Dialog>
 </template>

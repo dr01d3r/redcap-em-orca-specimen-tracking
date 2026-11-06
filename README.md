@@ -160,6 +160,10 @@ Batch mode allows the values you toggle on to persist during data entry, which i
 The lower section of the entry interface contains a specimen list.  Toggle on specimen fields you want to display in the list.
 Best to keep concise. This is the best spot to take action on specimens.
 
+**Specimen Box List**
+
+The fields to be displayed when searching and displaying box information on the Specimen Entry Dashboard.  The following fields are required and cannot be removed: Record ID, Box Name, and Box Status.
+
 **Box Preview and Details**
 
 Displays a list of box information in a collapsible section above the Box Preview in the Specimen Entry Dashboard.  Can display useful box fields like storage location.
